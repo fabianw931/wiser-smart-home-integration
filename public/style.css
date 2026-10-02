@@ -1,0 +1,20 @@
+:root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; --accent: #176a53; }
+body { max-width: 1100px; margin: auto; padding: 2rem; background: light-dark(#f3f6f3, #14201b); color: light-dark(#172b22, #ecf4ef); }
+h1 { font-size: clamp(2rem, 5vw, 3.5rem); margin: .25rem 0; letter-spacing: -.05em; }
+h2 { margin-top: 0; } h3 { margin: 0; }
+.eyebrow { font-weight: 700; letter-spacing: .12em; font-size: .8rem; }
+section, article { padding: 1.4rem; border: 1px solid light-dark(#d0dbd4, #3b5144); border-radius: 12px; background: light-dark(#fff, #1c2e25); margin: 1.2rem 0; }
+article { margin: .7rem 0; } article p { margin: .5rem 0; }
+form { display: grid; gap: 1rem; }
+label { display: grid; gap: .3rem; }
+input { font: inherit; padding: .65rem; border: 1px solid #829b8e; border-radius: 6px; max-width: 100%; min-width: 0; }
+button { font: inherit; border: 1px solid #628b79; border-radius: 6px; padding: .6rem 1rem; cursor: pointer; background: var(--accent); color: white; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; margin-top: .7rem; }
+.actions label { flex: 1; min-width: 190px; }
+.muted, footer { opacity: .75; font-size: .85rem; }
+#error, .failure { color: light-dark(#ad2424, #ffabab); }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .85rem; max-height: 28rem; overflow: auto; }
+summary { cursor: pointer; padding: .6rem 0; font-weight: 650; }
+:focus-visible { outline: 3px solid #cd8e21; outline-offset: 3px; }
+@media (max-width: 600px) { body { padding: 1rem; } section { padding: 1rem; } }
