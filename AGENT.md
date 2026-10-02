@@ -21,3 +21,10 @@ Commit completed, coherent milestones throughout the work so progress can be tra
 - For this project, the user requests regular pushes of verified milestone commits so collaborators can follow progress.
 - Inspect the configured source remote and branch before pushing; never publish through the `local` remote. Use ordinary, non-force pushes only.
 - If a push fails because of permissions or diverging history, report the blocker rather than rewriting shared history.
+
+## Subagent model preferences
+
+- Use GPT-6.1 Sol (`gpt-6.1-sol`) for Sol assignments, not GPT-6 Sol.
+- Keep GPT-6 Luna (`gpt-6-luna`) for Luna assignments such as requirements, documentation, and UX.
+- Use Astra only where the complexity warrants it.
+- Give agents separate ownership areas; integrate and verify their results before committing.

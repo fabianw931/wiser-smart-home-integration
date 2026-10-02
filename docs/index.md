@@ -38,6 +38,10 @@ Read [API overview](api-overview.md), then [Getting started](getting-started.md)
 
 See the [dashboard architecture, use, scope, and hardware-validation checklist](dashboard.md).
 
+### Restart paused development
+
+Read the [checkpoint and fresh-worker handoff](restart-handoff.md). It distinguishes the committed vanilla POC from the unfinished Svelte migration and backend fixes.
+
 ### Design an integration
 
 Read [Entity model](entity-model.md), then [Integration options](integration-options.md).

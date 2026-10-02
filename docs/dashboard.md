@@ -13,7 +13,7 @@ status: software-tested-hardware-untested
 
 # Wiser local dashboard POC
 
-This note describes the repository's local dashboard proof of concept (POC), not a supported production integration. The backend is a small Node HTTP server and the existing UI is vanilla JavaScript. The frontend is being migrated to Svelte, Vite, Tailwind, and daisyUI; after that migration, `npm install` followed by `npm start` is intended to build the frontend and serve it through the single localhost backend. Do not assume that workflow is already available until the migration lands. The current backend listens on `127.0.0.1` and defaults to port `3000`; `PORT` can override it (see [server startup](../server.js)).
+This note describes the repository's local dashboard proof of concept (POC), not a supported production integration. The backend is a small Node HTTP server and the current UI is vanilla JavaScript. Development is paused; the requested Svelte, Vite, Tailwind, and daisyUI migration has not landed. Read the [restart handoff](restart-handoff.md) for remaining work and known connection-cancellation races. The current backend listens on `127.0.0.1` and defaults to port `3000`; `PORT` can override it (see [server startup](../server.js)).
 
 ## Architecture and behavior
 
@@ -27,14 +27,13 @@ The wider gateway resource model and documented endpoint semantics are described
 
 ## Run locally
 
-Use Node.js 22.12 or later. When the Svelte/Vite migration is present, install dependencies and start with:
+The current baseline requires Node.js 20 or later and has no dependency installation or build step:
 
 ```sh
-npm install
 npm start
 ```
 
-Open the localhost URL printed by the server. The backend currently uses `PORT` or defaults to `3000`; if the frontend migration changes startup behavior, follow the actual server output rather than assuming a fixed port. Never put gateway credentials in source files, documentation, shell history, or committed configuration.
+Open the localhost URL printed by the server. The backend uses `PORT` or defaults to `3000`. The future Svelte/Vite migration will add a dependency installation and build step; use its eventual README rather than assuming that workflow exists now. Never put gateway credentials in source files, documentation, shell history, or committed configuration.
 
 ## Local security boundary
 
