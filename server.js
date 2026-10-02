@@ -6,11 +6,13 @@ import { pathToFileURL } from 'node:url';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
   'sensors', 'hvacgroups', 'hvacgroups/state']);
-const ASSETS = {
-  '/': ['index.html', 'text/html'],
-  '/app.js': ['app.js', 'text/javascript'],
-  '/style.css': ['style.css', 'text/css'],
-};
+function asset(path) {
+  if (path === '/') return ['index.html', 'text/html'];
+  if (/^\/assets\/[a-zA-Z0-9_-]+\.(js|css)$/.test(path)) {
+    return [path.slice(1), path.endsWith('.js') ? 'text/javascript' : 'text/css'];
+  }
+  return null;
+}
 class AppError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
@@ -128,9 +130,15 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) throw new AppError(403, 'Same-origin requests required.');
       if (req.headers['sec-fetch-site'] === 'cross-site') throw new AppError(403, 'Cross-site requests forbidden.');
       const path = req.url;
-      if (req.method === 'GET' && ASSETS[path]) {
-        const [file, type] = ASSETS[path];
-        const content = await readFile(new URL(`./public/${file}`, import.meta.url));
+      const staticAsset = req.method === 'GET' ? asset(path) : null;
+      if (staticAsset) {
+        const [file, type] = staticAsset;
+        let content;
+        try { content = await readFile(new URL(`./dist/${file}`, import.meta.url)); }
+        catch (error) {
+          if (error.code === 'ENOENT') throw new AppError(404, 'Built asset not found. Run npm run build.');
+          throw error;
+        }
         res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` });
         return res.end(content);
       }

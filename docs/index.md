@@ -38,9 +38,9 @@ Read [API overview](api-overview.md), then [Getting started](getting-started.md)
 
 See the [dashboard architecture, use, scope, and hardware-validation checklist](dashboard.md).
 
-### Restart paused development
+### Continue development
 
-Read the [checkpoint and fresh-worker handoff](restart-handoff.md). It distinguishes the committed vanilla POC from the unfinished Svelte migration and backend fixes.
+Read the [completed-work handoff](development-handoff.md) for the delivered Svelte POC, verification evidence, and remaining work. The earlier [restart checkpoint](restart-handoff.md) is historical.
 
 ### Design an integration
 

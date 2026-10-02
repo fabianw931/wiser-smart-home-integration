@@ -8,10 +8,12 @@ tags:
   - dashboard
   - handoff
 type: handoff
-status: paused
+status: superseded
 ---
 
 # Dashboard restart handoff
+
+**Historical note:** this describes checkpoint `6257bf4`, before development resumed. The Svelte migration and cancellation fixes are now implemented; use [the current development handoff](development-handoff.md) instead. Instructions and unfinished-work descriptions below preserve the old checkpoint, not today's backlog.
 
 ## State of this checkpoint
 
@@ -24,7 +26,7 @@ This checkpoint preserves the existing vanilla-JavaScript POC and records the un
 ### Committed baseline
 
 - Small Node HTTP backend in [server.js](../server.js), with no runtime dependencies.
-- Vanilla frontend in [public/index.html](../public/index.html), [public/app.js](../public/app.js), and [public/style.css](../public/style.css).
+- Vanilla frontend under `public/` in the historical checkpoint (replaced by `src/` in the current version).
 - Gateway IP/hostname input; an existing Bearer token or physical-button pairing with a generated unique client username.
 - Discovery, reported load states, on/off, dimming, and blind position targets.
 - Read-only optional gateway, room, device, sensor, and HVAC data.

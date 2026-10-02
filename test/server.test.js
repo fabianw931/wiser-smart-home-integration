@@ -291,7 +291,11 @@ test('malformed load discovery revokes cached controls until a valid rediscovery
 
 test('static app is served with security headers and no arbitrary file access', async t => {
   const f = await fixture(t);
-  for (const path of ['/', '/app.js', '/style.css']) {
+  const html = await (await fetch(`http://127.0.0.1:${f.appPort}/`)).text();
+  const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map(match => match[1]);
+  assert.ok(assets.some(path => path.endsWith('.js')));
+  assert.ok(assets.some(path => path.endsWith('.css')));
+  for (const path of ['/', ...assets]) {
     const response = await fetch(`http://127.0.0.1:${f.appPort}${path}`);
     assert.equal(response.status, 200);
     assert.ok(response.headers.get('content-security-policy').includes("frame-ancestors 'none'"));
@@ -299,6 +303,8 @@ test('static app is served with security headers and no arbitrary file access', 
     await response.text();
   }
   assert.equal((await f.request('/server.js')).status, 404);
+  assert.equal((await f.request('/assets/missing.js')).status, 404);
+  assert.equal((await f.request('/src/App.svelte')).status, 404);
 });
 
 test('invalid connection input never reaches the gateway', async t => {

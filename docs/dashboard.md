@@ -13,27 +13,29 @@ status: software-tested-hardware-untested
 
 # Wiser local dashboard POC
 
-This note describes the repository's local dashboard proof of concept (POC), not a supported production integration. The backend is a small Node HTTP server and the current UI is vanilla JavaScript. Development is paused; the requested Svelte, Vite, Tailwind, and daisyUI migration has not landed. Read the [restart handoff](restart-handoff.md) for remaining work and known connection-cancellation races. The current backend listens on `127.0.0.1` and defaults to port `3000`; `PORT` can override it (see [server startup](../server.js)).
+This note describes the repository's local dashboard proof of concept (POC), not a supported production integration. A small Node HTTP server serves a Svelte frontend built with Vite, Tailwind, and daisyUI. The server listens on `127.0.0.1` and defaults to port `3000`; `PORT` can override it (see [server startup](../server.js)). Read the [development handoff](development-handoff.md) for delivered work, verification, and next-session priorities.
 
 ## Architecture and behavior
 
-- The browser UI and API are served from one origin. The backend makes HTTP requests to the gateway's local API, rather than having browser code contact it directly. Its allowlisted read resources and gateway request handling are in [server.js](../server.js); the dashboard's current read and render flow is in [public/app.js](../public/app.js).
+- The browser UI and API are served from one origin. The backend makes HTTP requests to the gateway's local API, rather than having browser code contact it directly. Its allowlisted read resources and gateway request handling are in [server.js](../server.js); the dashboard's lifecycle and refresh flow are in [src/App.svelte](../src/App.svelte), with separate connection, load-card, and resource-panel components.
 - Credentials and the connected gateway session live only in the Node process's memory. It is one shared session for that server process, including across browser tabs; closing a tab does not clear credentials. They are not persisted; disconnect forgets the local session/token but does not revoke or delete the gateway account/credential, and stopping the server clears its memory. The browser clears the entered token after submission. Pairing credentials are not returned to the browser, and gateway responses are sanitized to remove secret-like fields and echoed tokens.
 - Pair by entering the gateway host and choosing pairing, then press the physically flashing gateway button within 30 seconds. The backend sends a unique generated username for each physical pairing claim. Alternatively, connect with a token already obtained through another supported process.
-- The UI refreshes load definitions and reported states at startup/after actions, supports manual refresh, and polls every 30 seconds while connected. Optional resource JSON is displayed read-only. Current metadata reads include `info`, `rooms`, `devices`, `sensors`, `hvacgroups`, and `hvacgroups/state`; some are loaded on the initial refresh and the others on periodic/manual refresh.
+- The UI refreshes load definitions and reported states at startup/after actions, supports manual refresh, and polls 30 seconds after the preceding operation finishes while connected. Optional resource JSON is displayed read-only. Each refresh also reads `info`, `rooms`, `devices`, `sensors`, `hvacgroups`, and `hvacgroups/state`; optional failures do not hide discovered loads.
+- A successful target command is not proof of physical movement. The UI reports acceptance separately from reported state. Failed state refreshes mark old readings as stale and disable controls until a successful refresh.
 - Writes are limited to target-state controls for active `onoff`, `dim`, and `motor` loads. On/off accepts `bri` 0 or 10000; dim uses `bri` 0–10000; motor uses `level` 0–10000. Motors are position-only: the POC does not expose tilt, stop, or calibration controls. It does not write HVAC targets, run jobs/scenes, or control the cloud.
 
 The wider gateway resource model and documented endpoint semantics are described in [entity model](entity-model.md) and [API overview](api-overview.md). Those research notes are not a promise that this POC implements every documented resource or operation.
 
 ## Run locally
 
-The current baseline requires Node.js 20 or later and has no dependency installation or build step:
+Requires Node.js 22.12 or later. NixOS users can enter the repository's `nix-shell` first:
 
 ```sh
+npm install
 npm start
 ```
 
-Open the localhost URL printed by the server. The backend uses `PORT` or defaults to `3000`. The future Svelte/Vite migration will add a dependency installation and build step; use its eventual README rather than assuming that workflow exists now. Never put gateway credentials in source files, documentation, shell history, or committed configuration.
+This builds local assets and starts the backend. Open the localhost URL printed by the server. The backend uses `PORT` or defaults to `3000`. Never put gateway credentials in source files, documentation, shell history, or committed configuration.
 
 ## Local security boundary
 
