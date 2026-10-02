@@ -34,6 +34,10 @@ Read [Products and generations](products.md), then [Integration options](integra
 
 Read [API overview](api-overview.md), then [Getting started](getting-started.md).
 
+### Try the local proof of concept
+
+See the [dashboard architecture, use, scope, and hardware-validation checklist](dashboard.md).
+
 ### Design an integration
 
 Read [Entity model](entity-model.md), then [Integration options](integration-options.md).

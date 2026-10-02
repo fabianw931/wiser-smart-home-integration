@@ -56,7 +56,7 @@ The official loads tutorial documents:
 
 Brightness examples use the scale **0–10000**: `0` is off and `10000` is fully on. Convert this deliberately if the target platform uses percentages or 0–255.
 
-Motor positions and tilt require a verified mapping to the target platform. Do not assume that “0” means the same open/closed orientation on both sides. Confirm numeric bounds, direction, calibration, and stop semantics against the specification and a real blind before enabling controls.
+The official motor tutorial's level convention is **0 = open** and **10000 = closed**; motor tilt is a **step count, not degrees**. Verify installation orientation and actual behavior before controlling a real blind. Do not infer tilt degrees or assume that target-platform stop semantics are interchangeable.
 
 The product portfolio includes DALI DT8 color-capable hardware. This tutorial's three basic types are not sufficient evidence for the exact color-control schema on current firmware.
 
