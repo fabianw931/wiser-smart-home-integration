@@ -321,3 +321,61 @@ test('invalid connection input never reaches the gateway', async t => {
   await invalidJson.text();
   assert.equal(f.calls.length, 0);
 });
+
+test('disconnect invalidates a connect whose body is still streaming', { timeout: 5000 }, async t => {
+  const f = await fixture(t);
+  const req = http.request(`http://127.0.0.1:${f.appPort}/api/connect`, {
+    method: 'POST',
+    headers: { 'X-Wiser-Client': 'local-poc', 'Content-Type': 'application/json' },
+  });
+  req.on('error', () => {});
+  t.after(() => req.destroy());
+  const response = new Promise(resolve => req.once('response', res => { res.resume(); resolve(res.statusCode); }));
+  req.write('{"host":"127.0.0.1",');
+  // Observe the pending attempt before disconnecting, rather than relying on a delay.
+  while (!(await f.request('/api/session')).body.connecting) await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await f.connect()).status, 409);
+  await f.request('/api/disconnect', 'POST');
+  req.end('"pair":true}');
+  assert.equal(await response, 409);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await f.request('/api/session')).body.connected, false);
+});
+
+test('abandoning a pending claim cannot retain credentials or clear a later session', { timeout: 5000 }, async t => {
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  let arrived;
+  const claimed = new Promise(resolve => { arrived = resolve; });
+  const f = await fixture(t, {
+    onGateway: async (req, res) => {
+      if (req.url !== '/api/account/claim') return false;
+      arrived();
+      await hold;
+      res.end(JSON.stringify({ status: 'success', data: { secret: 'fake-secret' } }));
+      return true;
+    },
+  });
+  t.after(release);
+  const req = http.request(`http://127.0.0.1:${f.appPort}/api/connect`, {
+    method: 'POST',
+    headers: { 'X-Wiser-Client': 'local-poc', 'Content-Type': 'application/json' },
+  });
+  req.on('error', () => {});
+  t.after(() => req.destroy());
+  req.end(JSON.stringify({ host: '127.0.0.1', pair: true }));
+  await claimed;
+  req.destroy();
+  while ((await f.request('/api/session')).body.connecting) await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await f.request('/api/session')).body.connected, false);
+  assert.equal((await f.connect()).status, 200);
+  release();
+  assert.equal((await f.request('/api/session')).body.connected, true);
+});
+
+test('normal response closure preserves an established connection', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.connect()).status, 200);
+  assert.equal((await f.request('/api/session')).body.connected, true);
+  assert.equal((await f.request('/api/read/loads')).status, 200);
+});

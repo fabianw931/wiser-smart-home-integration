@@ -144,16 +144,29 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       }
       if (req.method === 'POST' && path === '/api/connect') {
         if (connecting) throw new AppError(409, 'Connection already in progress.');
-        const input = await body(req);
-        keys(input, ['host', 'token', 'pair']);
-        const host = validateHost(input.host);
-        if (typeof input.pair !== 'boolean') invalid('Choose token or pairing mode.');
-        if (input.pair ? input.token !== undefined : typeof input.token !== 'string' || !/^[\x21-\x7e]{1,2048}$/.test(input.token)) invalid('Supply a valid token or choose pairing, not both.');
-        if (connecting) throw new AppError(409, 'Connection already in progress.');
-        reset();
-        const current = generation;
+        // Reserve the attempt before reading a potentially streamed body.
+        // A later disconnect or replacement must invalidate this request too.
+        let current = generation;
         connecting = true;
+        const cancel = () => {
+          if (!res.writableFinished && generation === current) reset();
+        };
+        req.once('aborted', cancel);
+        res.once('close', cancel);
+        res.once('finish', () => {
+          req.off('aborted', cancel);
+          res.off('close', cancel);
+        });
         try {
+          const input = await body(req);
+          if (generation !== current || req.aborted || res.destroyed) throw new AppError(409, 'Connection cancelled.');
+          keys(input, ['host', 'token', 'pair']);
+          const host = validateHost(input.host);
+          if (typeof input.pair !== 'boolean') invalid('Choose token or pairing mode.');
+          if (input.pair ? input.token !== undefined : typeof input.token !== 'string' || !/^[\x21-\x7e]{1,2048}$/.test(input.token)) invalid('Supply a valid token or choose pairing, not both.');
+          reset();
+          current = generation;
+          connecting = true;
           let token = input.token;
           if (input.pair) {
             const account = await gateway(host, null, 'account/claim', 'POST', { user: `local-poc-${randomUUID()}` }, true);
@@ -161,7 +174,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
             if (typeof token !== 'string' || !/^[\x21-\x7e]{1,2048}$/.test(token)) throw new AppError(502, 'Gateway did not provide a valid pairing credential.');
           }
           const info = await gateway(host, token, 'info');
-          if (generation !== current) throw new AppError(409, 'Connection cancelled.');
+          if (generation !== current || req.aborted || res.destroyed) throw new AppError(409, 'Connection cancelled.');
           session = { host, token, loads: new Map() };
           return reply(200, { connected: true, host, info: sanitize(info, token) });
         } finally { if (generation === current) connecting = false; }
@@ -191,6 +204,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       }
       throw new AppError(404, 'Endpoint not allowed.');
     } catch (error) {
+      if (res.destroyed || res.writableEnded) return;
       reply(error instanceof AppError ? error.status : 500,
         { error: error instanceof AppError ? error.message : 'Local server error.' });
     }
