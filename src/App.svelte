@@ -1,5 +1,6 @@
 <script>
   import ThemePicker from './components/ThemePicker.svelte';
+  import QuickEditor from './components/QuickEditor.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { createApi } from './api.js';
   import ConnectionForm from './components/ConnectionForm.svelte';
@@ -30,6 +31,8 @@
   let demo = false;
   let search = '';
   let roomFilter = '';
+  let grouping = 'room';
+  let editingLoad = null;
   let mappings = {};
   let gatewayKey = '';
   let storageNotice = '';
@@ -44,6 +47,8 @@
   });
   $: roomLabels = [...new Set(displayedLoads.map(load => load.personalRoom).filter(Boolean))].sort();
   $: filteredLoads = displayedLoads.filter(load => (roomFilter === '' || (roomFilter === 'unassigned' ? !load.personalRoom : load.personalRoom === roomFilter)) && (load.name || '').toLowerCase().includes(search.toLowerCase()));
+  $: groups = Array.from(Map.groupBy(filteredLoads, load => grouping === 'room' ? load.personalRoom : grouping === 'type' ? load.type : 'All devices'), ([label, items]) => ({ label, items }))
+    .sort((a, b) => a.label === '' ? 1 : b.label === '' ? -1 : a.label.localeCompare(b.label));
   $: reviewLoad = loads.find(load => String(load.id) === reviewId);
   $: reviewConflict = reviewChange && (!reviewLoad || Object.entries(reviewChange.expected).some(([field, value]) => (reviewLoad[field] ?? null) !== value));
   const mappingUrl = (suffix = '', key = gatewayKey) => '/api/local/mappings' + suffix + '?gateway=' + encodeURIComponent(key);
@@ -87,8 +92,12 @@
   }
   async function saveLocal(load, fields) {
     try {
-      if (await changeMappings('/' + load.id, 'PUT', makeMapping(load, fields))) commandNotice = 'Personal mapping saved in SQLite. Gateway configuration is unchanged.';
+      if (await changeMappings('/' + load.id, 'PUT', makeMapping(load, fields))) {
+        commandNotice = 'Personal mapping saved in SQLite. Gateway configuration is unchanged.';
+        return true;
+      }
     } catch (failure) { storageNotice = 'Mapping was not saved: ' + failure.message; }
+    return false;
   }
   async function removeLocal(id) {
     try {
@@ -221,6 +230,7 @@
     });
   }
   async function disconnect() {
+    editingLoad = null;
     if (disconnecting) return;
     disconnecting = true;
     demo = false; mappings = {}; gatewayKey = ''; storageNotice = ''; mappingBusy = false; search = ''; roomFilter = '';
@@ -285,9 +295,21 @@
     {/if}
     {#if page === 'Home'}
       <section aria-labelledby="loads-heading"><div class="section-heading"><h2 id="loads-heading" class="section-title">Your lights & blinds</h2><span class="muted text-sm">{demo ? 'Sample installation' : 'Reported installation'}</span></div>
-      {#if connected || demo}<div class="toolbar"><label class="search-label"><span class="sr-only">Search loads</span><input class="input w-full" bind:value={search} placeholder="Search lights or blinds…" /></label><label><span class="sr-only">Filter by room</span><select class="select" bind:value={roomFilter}><option value="">All rooms</option>{#each roomLabels as room}<option value={room}>{room}</option>{/each}<option value="unassigned">Unassigned</option></select></label><span class="result-count" aria-live="polite">{filteredLoads.length} of {loads.length} loads</span>{#if search || roomFilter}<button class="btn btn-sm btn-ghost" onclick={() => { search = ''; roomFilter = ''; }}>Clear filters</button>{/if}</div>{/if}
+      {#if connected || demo}<div class="toolbar"><label class="search-label"><span class="sr-only">Search loads</span><input class="input w-full" bind:value={search} placeholder="Search lights or blinds…" /></label><label><span class="sr-only">Filter by room</span><select class="select" bind:value={roomFilter}><option value="">All rooms</option>{#each roomLabels as room}<option value={room}>{room}</option>{/each}<option value="unassigned">Unassigned</option></select></label><label><span class="sr-only">Group devices by</span><select class="select" bind:value={grouping}><option value="room">Group by room</option><option value="type">Group by type</option><option value="none">No grouping</option></select></label><span class="result-count" aria-live="polite">{filteredLoads.length} of {loads.length} loads</span>{#if search || roomFilter}<button class="btn btn-sm btn-ghost" onclick={() => { search = ''; roomFilter = ''; }}>Clear filters</button>{/if}</div>{/if}
       {#if !connected && !demo}<p class="muted">Connect to discover your lights and blinds, or explore the sample home.</p>{:else if !filteredLoads.length}<p class="empty-state">{loads.length ? 'No loads match your filters.' : 'No loads reported by this gateway.'}</p>{/if}
-      <div class="load-grid">{#each filteredLoads as load (load.id)}<div class="load-room"><p class="room-caption">{load.personalRoom || 'Unassigned'}{#if mappings[load.id] && mappingMatches(load, mappings[load.id])} · Personal mapping{/if}</p><LoadCard {load} state={states[load.id]} disabled={busy || (!connected && !demo)} {stale} onwrite={write} />{#if load.personalNotes}<p class="personal-notes">{load.personalNotes}</p>{/if}</div>{/each}</div></section>
+      {#each groups as group (group.label)}
+        <section class="device-group" aria-label={group.label || 'Unassigned'}>
+          <div class="group-heading"><h3>{group.label || 'Unassigned'}</h3><span class="badge">{group.items.length} {group.items.length === 1 ? 'device' : 'devices'}</span></div>
+          <div class="load-grid">{#each group.items as load (load.id)}
+            <div class="load-room">
+              {#if grouping !== 'room'}<p class="room-caption">{load.personalRoom || 'Unassigned'}</p>{/if}
+              <LoadCard {load} state={states[load.id]} disabled={busy || (!connected && !demo)} {stale} onwrite={write} />
+              <div class="device-details-bar"><span class="muted text-xs">{mappingMatches(load, mappings[load.id]) ? 'Personal mapping' : 'Gateway labels'}</span><button class="btn btn-sm btn-ghost" disabled={mappingBusy} aria-label={'Edit details for ' + (load.name || 'Load ' + load.id)} onclick={() => editingLoad = { ...load }}>Edit details</button></div>
+              {#if load.personalNotes}<p class="personal-notes">{load.personalNotes}</p>{/if}
+            </div>
+          {/each}</div>
+        </section>
+      {/each}</section>
     {:else if page === 'Configuration'}
       <ConfigurationPanel {loads} {rooms} {mappings} busy={busy || mappingBusy} {demo} onsave={saveLocal} onremove={removeLocal} onreview={review} onexport={exportLocal} onimport={importLocal} />
     {:else}
@@ -306,3 +328,5 @@
     <div class="flex flex-wrap gap-2"><button class="btn btn-outline" onclick={() => reviewDialog.close()}>Cancel</button><button class="btn btn-primary" disabled={busy || demo || !connected || reviewConflict} onclick={applyConfiguration}>Apply this change to gateway</button></div>
   {/if}
 </dialog>
+
+{#if editingLoad}<QuickEditor load={editingLoad} rooms={roomLabels} onsave={saveLocal} onclose={() => editingLoad = null} />{/if}

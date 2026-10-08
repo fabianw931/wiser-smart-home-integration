@@ -1,5 +1,40 @@
 import { test, expect } from './gateway-fixture.js';
 
+test('dashboard groups devices and edits personal details without gateway changes', async ({ page, gateway }) => {
+  await connect(page, gateway);
+  await expect(page.getByLabel('Group devices by')).toHaveValue('room');
+  await page.getByRole('button', { name: 'Edit details for Hall light', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit device details' });
+  await dialog.getByLabel('Personal display name').fill('Entry pendant');
+  await dialog.getByLabel('Personal room', { exact: true }).fill('Entrance');
+  await dialog.getByLabel('Personal notes').fill('Check with installer');
+  await dialog.getByRole('button', { name: 'Save details' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Entrance', exact: true }).getByRole('article', { name: 'Entry pendant' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page');
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+  await page.getByLabel('Group devices by').selectOption('type');
+  await expect(page.getByRole('region', { name: 'onoff', exact: true }).getByRole('article', { name: 'Entry pendant' })).toBeVisible();
+  await page.getByLabel('Group devices by').selectOption('none');
+  await expect(page.getByRole('region', { name: 'All devices', exact: true }).getByRole('article')).toHaveCount(10);
+  await page.reload();
+  await expect(page.getByRole('article', { name: 'Entry pendant' })).toBeVisible();
+});
+
+test('dashboard editing keeps unsaved input on failure and cancel leaves labels unchanged', async ({ page, gateway }) => {
+  await connect(page, gateway);
+  await page.route('**/api/local/mappings/1?*', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Unavailable' }) }));
+  await page.getByRole('button', { name: 'Edit details for Hall light', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Personal display name').fill('Keep my input');
+  await dialog.getByRole('button', { name: 'Save details' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Could not save');
+  await expect(dialog.getByLabel('Personal display name')).toHaveValue('Keep my input');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('article', { name: 'Hall light', exact: true })).toBeVisible();
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+});
+
 test('appearance follows the system and remembers an explicit override', async ({ page, gateway }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto(gateway.url);

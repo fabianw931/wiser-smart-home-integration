@@ -16,6 +16,8 @@ The current milestone extends the Svelte dashboard with personal configuration a
 
 ## Delivered
 
+- Dashboard room groups (personal room overrides gateway room), optional type/flat grouping, and per-device **Edit details** for local names, rooms, and notes without opening Configuration. Failed edits retain input; cancel makes no changes. See [feature ideas](feature-backlog.md) for the next priorities.
+
 - Room-oriented Home, Configuration, and Diagnostics pages, search, room filtering, responsive teal/cream design, and accessible form labels.
 - System/light/dark appearance selector, browser-local preference persistence, live system-theme updates, refined stat tiles, device icons and reported-on highlights, filter counts/reset, and larger touch targets. Appearance does not change device behavior.
 - On/off, dimming, blind position, DALI brightness, tunable white, and RGBW controls. Connected controls send real commands immediately; there is no enable-live switch.
@@ -43,7 +45,7 @@ Open http://127.0.0.1:3000. Use **Explore sample home** for a disconnected demon
 - Svelte checks: zero errors and warnings.
 - Production build: passed.
 - Node tests: 39 passed (32 backend, 3 SQLite, 4 mapping tests).
-- Browser tests: 19 passed using installed Chrome and a simulated gateway, including migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
+- Browser tests: 21 passed using installed Chrome and a simulated gateway, including dashboard grouping/editing, migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
 - Screenshots: desktop and 375px mobile layouts generated and reviewed.
 - Physical gateway: not tested.
 

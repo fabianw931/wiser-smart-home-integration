@@ -137,6 +137,11 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .home-stats strong { color: var(--ink); font-size: 30px; line-height: 1.2; }
 .home-stats span { font-size: 12px; }
 .result-count { font-size: 12px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.device-group { margin-block: 28px 36px; }
+.group-heading { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.group-heading h3 { font-size: 18px; font-weight: 650; overflow-wrap: anywhere; }
+.device-details-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px; }
+.quick-editor { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .input, .select, .textarea { color: var(--ink); box-shadow: none; }
 .input::placeholder, .textarea::placeholder { color: var(--muted); opacity: 1; }
 .input, .select, .btn { min-height: 44px; }
