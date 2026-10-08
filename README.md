@@ -19,7 +19,7 @@ This repository contains research documentation and a working **Svelte + Vite** 
 
 ## Run the local web POC
 
-Requires **Node.js 22.12 or newer** and a modern browser. On NixOS, enter `nix-shell` in the repository to get Node and npm using the included `shell.nix`.
+Requires **Node.js 22.13 or newer** and a modern browser. On NixOS, enter `nix-shell` in the repository to get Node and npm using the included `shell.nix`.
 
 ```sh
 npm install
@@ -30,7 +30,7 @@ npm start
 
 1. Enter your commissioned gateway's IP or hostname and connect with an existing token, or explicitly pair a new account by pressing the gateway button when prompted.
 2. Use Home to control lights and blinds normally. Brightness and blind-position inputs use 0–100% with 0.01% precision. DALI tunable-white and RGBW controls appear for the appropriate load subtype.
-3. In **Configuration**, save your personal names, custom room labels, and notes. These are stored on your laptop in browser localStorage and are never sent to the gateway. Device controls keep working. **Export mappings** downloads a portable JSON backup; **Import mappings** restores missing entries. See [personal mappings](docs/local-mappings.md).
+3. In **Configuration**, save your personal names, custom room labels, and notes. These are stored in the local `data/wiser.sqlite` database and are never sent to the gateway. Device controls keep working. **Export mappings** downloads a portable JSON backup; **Import mappings** restores missing entries. See [personal mappings](docs/local-mappings.md).
 4. Actual gateway name/room changes are available separately under **Change gateway metadata…**. Review the changes and confirm **Apply this change to gateway**. Personal mappings are never applied automatically. Installer settings and device commissioning are not touched.
 5. Use **Explore sample home** for a clearly labeled offline demonstration. Its controls simulate fictional devices.
 6. **Diagnostics** shows optional read-only resources. Core state polling runs 30 seconds after requests finish; slow diagnostics do not block controls.
@@ -40,7 +40,7 @@ npm start
 
 - **This is a local unauthenticated app controlling real equipment.** Anyone or any program with access to this local service can use its current gateway session. All tabs share one in-memory connection; use one tab. Do not expose, reverse-proxy, forward, or tunnel its port. It is not a multi-user service or a production home-automation controller.
 - Gateway HTTP traffic, including bearer tokens, is **unencrypted**. Use a trusted computer and LAN. Host/Origin checks, no CORS, a required custom API header, and a restrictive content security policy reduce hostile-webpage access; they are not authentication against local software.
-- Gateway credentials stay in server memory, never in browser storage or exported mappings. Existing-token inputs are cleared immediately after submission. Personal names, room labels, and notes are saved in localStorage; export them before changing browser profile or app origin. Writes require the current session scope, so stale tabs cannot operate a replacement connection.
+- Gateway credentials stay in server memory, never in browser storage or exported mappings. Existing-token inputs are cleared immediately after submission. Personal names, room labels, and notes are saved in SQLite on the computer running the server; browser storage is migrated automatically. Back up the database or export mappings. Writes require the current session scope, so stale tabs cannot operate a replacement connection.
 - Disconnect forgets credentials but does not delete the account from the gateway or revoke an existing token. Pairing again creates another account. Cancelled pairing might still have created a gateway account. A target already sent cannot be undone by disconnecting.
 - Only fixed read endpoints (`info`, `loads`, `loads/state`, `rooms`, `devices`, `sensors`, `hvacgroups`, `hvacgroups/state`), account claim, validated targets, and validated name/room updates for discovered loads are proxied. There is no generic URL proxy. No job execution, identification, commissioning, calibration, or other potentially side-effecting GET discovery is performed.
 - Gateway host validation allows IP addresses and DNS hostnames, not arbitrary URLs/ports/paths. It does not enforce a private-address subnet or pin hostname resolution; only enter a gateway you trust, preferably its known IP address. Redirects are not followed.
@@ -54,7 +54,7 @@ npm run check
 npm test
 ```
 
-`npm test` builds the frontend and runs **32 Node tests** (28 backend tests using a loopback fake gateway and 4 personal-mapping tests). They cover validation, discovery and write allowlisting, credential redaction, unsupported resources, timeouts, redirects, cancellation races, and local mapping handling. `npm run check` checks the Svelte components. See the [handoff](docs/development-handoff.md) for browser-suite status.
+`npm test` builds the frontend and runs the Node regression suite (backend tests using a loopback fake gateway, SQLite persistence tests, and personal-mapping tests). They cover validation, discovery and write allowlisting, credential redaction, unsupported resources, timeouts, redirects, cancellation races, and local mapping handling. `npm run check` checks the Svelte components. See the [handoff](docs/development-handoff.md) for browser-suite status.
 
 To run the browser tests, point Playwright at an existing Chrome/Chromium executable:
 
@@ -72,7 +72,8 @@ Browser tests cover the local app against a loopback-only fake gateway and never
 - `src/App.svelte`: connection lifecycle, resource refresh, polling, and command feedback.
 - `src/components/`: connection form, load cards, personal configuration, and read-only resource panels.
 - `src/api.js`: same-origin API calls, timeouts, and cancellation.
-- `src/mappings.js`: personal mapping validation, storage, and JSON import/export.
+- `src/mappings.js`: personal mapping validation, legacy browser migration helpers, and JSON import/export.
+- `storage.js`: versioned SQLite personal mapping store; defaults to `data/wiser.sqlite`, configurable with `WISER_DB_PATH`.
 - `server.js`: localhost HTTP server, gateway session, validation, and narrowly scoped proxy.
 - `test/`: backend regressions; `e2e/`: browser tests and fake gateway.
 - `dist/`: generated assets; `package-lock.json`: pinned dependency resolution.

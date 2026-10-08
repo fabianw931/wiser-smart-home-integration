@@ -3,3 +3,8 @@ dist/
 test-results/
 playwright-report/
 .obsidian/
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal

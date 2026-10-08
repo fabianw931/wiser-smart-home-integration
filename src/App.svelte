@@ -32,6 +32,7 @@
   let mappings = {};
   let gatewayKey = '';
   let storageNotice = '';
+  let mappingBusy = false;
   let reviewDialog;
   let reviewId = '';
   let reviewChange = null;
@@ -44,45 +45,77 @@
   $: filteredLoads = displayedLoads.filter(load => (roomFilter === '' || (roomFilter === 'unassigned' ? !load.personalRoom : load.personalRoom === roomFilter)) && (load.name || '').toLowerCase().includes(search.toLowerCase()));
   $: reviewLoad = loads.find(load => String(load.id) === reviewId);
   $: reviewConflict = reviewChange && (!reviewLoad || Object.entries(reviewChange.expected).some(([field, value]) => (reviewLoad[field] ?? null) !== value));
-  function restoreLocal(key) {
+  const mappingUrl = (suffix = '', key = gatewayKey) => '/api/local/mappings' + suffix + '?gateway=' + encodeURIComponent(key);
+  async function restoreLocal(key) {
     gatewayKey = key.toLowerCase();
-    storageNotice = '';
-    try { mappings = readMappings(localStorage, gatewayKey); }
-    catch { mappings = {}; storageNotice = 'Saved mappings could not be read. Export new edits before closing this page.'; }
+    const current = epoch, scope = gatewayKey;
+    storageNotice = ''; mappings = {};
+    try {
+      const result = await api.request(mappingUrl('', scope));
+      if (current !== epoch) return;
+      mappings = result.data;
+      // Migrate only this gateway's legacy browser data after SQLite is available.
+      let legacy;
+      try { legacy = readMappings(localStorage, scope); }
+      catch { storageNotice = 'Existing browser mappings could not be read. Database mappings are available.'; return; }
+      if (Object.keys(legacy).length) {
+        const migrated = await api.request(mappingUrl('/import', scope), 'POST', { mappings: legacy });
+        if (current !== epoch) return;
+        mappings = migrated.data;
+        try { saveMappings(localStorage, scope, {}); }
+        catch { storageNotice = 'Mappings migrated, but the old browser copy could not be cleared.'; }
+        commandNotice = 'Existing browser mappings migrated to SQLite. Existing database entries were kept.';
+      }
+    } catch {
+      if (current === epoch) storageNotice = 'Could not load or migrate saved mappings. Existing browser data has been kept. Retry by reconnecting.';
+    }
   }
-  function persistLocal() {
-    try { saveMappings(localStorage, gatewayKey, mappings); storageNotice = ''; return true; }
-    catch { storageNotice = 'Mappings are currently in memory only. Export them to a file before closing this page.'; return false; }
+  async function changeMappings(suffix, method, payload) {
+    if (mappingBusy || !gatewayKey) throw new Error('A mapping save is already in progress.');
+    const current = epoch;
+    mappingBusy = true; storageNotice = '';
+    try {
+      const result = await api.request(mappingUrl(suffix), method, payload);
+      if (current !== epoch) return false;
+      mappings = result.data;
+      return true;
+    } catch (failure) {
+      if (current !== epoch) return false;
+      throw failure;
+    } finally { if (current === epoch) mappingBusy = false; }
   }
-  function saveLocal(load, fields) {
-    mappings = { ...mappings, [load.id]: makeMapping(load, fields) };
-    const saved = persistLocal();
-    commandNotice = saved ? 'Personal mapping saved locally. Gateway configuration is unchanged.' : 'Personal mapping updated in memory. Export it to keep a file backup.';
+  async function saveLocal(load, fields) {
+    try {
+      if (await changeMappings('/' + load.id, 'PUT', makeMapping(load, fields))) commandNotice = 'Personal mapping saved in SQLite. Gateway configuration is unchanged.';
+    } catch (failure) { storageNotice = 'Mapping was not saved: ' + failure.message; }
   }
-  function removeLocal(id) {
-    const next = { ...mappings }; delete next[id]; mappings = next; persistLocal();
-    commandNotice = 'Local mapping removed. Gateway configuration is unchanged.';
+  async function removeLocal(id) {
+    try {
+      if (await changeMappings('/' + id, 'DELETE')) commandNotice = 'Mapping removed from SQLite. Gateway configuration is unchanged.';
+    } catch (failure) { storageNotice = 'Mapping was not removed: ' + failure.message; }
   }
   function exportLocal() {
     const url = URL.createObjectURL(new Blob([exportMappings(gatewayKey, mappings)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'wiser-personal-mappings.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function importLocal(text) {
+  async function importLocal(text) {
     const imported = importMappings(text, gatewayKey);
-    mappings = { ...imported, ...mappings }; persistLocal();
-    commandNotice = 'Mappings imported locally. Existing entries were kept; nothing was sent to the gateway.';
+    if (await changeMappings('/import', 'POST', { mappings: imported })) commandNotice = 'Mappings imported into SQLite. Existing entries were kept; nothing was sent to the gateway.';
   }
   function review(load, change) {
     if (demo || busy || !connected) return;
     reviewId = String(load.id); reviewChange = change; reviewDialog.showModal();
   }
-  function explore() {
+  async function explore() {
     clearTimeout(timer); api.cancel(); epoch++;
     const sample = sampleHome();
-    demo = true; connected = false; busy = false; stale = false; diagnosticsBusy = false;
+    demo = true; connected = false; busy = true; stale = false; diagnosticsBusy = false;
     loads = sample.loads; states = sample.states; resources = { rooms: { data: sample.rooms } };
-    restoreLocal('sample-home');
+    const current = epoch;
+    await restoreLocal('sample-home');
+    if (current !== epoch) return;
+    busy = false;
     error = ''; notice = 'Sample home — simulated equipment. No gateway connected.'; updated = ''; page = 'Home';
   }
   function applyConfiguration() {
@@ -166,7 +199,8 @@
         if (current !== epoch) return;
         connected = result.connected;
         host = result.host.replace(/^\[|\]$/g, '');
-        restoreLocal(host);
+        await restoreLocal(host);
+        if (current !== epoch) return;
         await loadAll(current);
       });
     } finally { delete payload.token; }
@@ -188,7 +222,7 @@
   async function disconnect() {
     if (disconnecting) return;
     disconnecting = true;
-    demo = false; mappings = {}; gatewayKey = ''; storageNotice = ''; search = ''; roomFilter = '';
+    demo = false; mappings = {}; gatewayKey = ''; storageNotice = ''; mappingBusy = false; search = ''; roomFilter = '';
     reviewDialog?.close();
     epoch++;
     clearTimeout(timer);
@@ -219,7 +253,8 @@
       connected = session.connected;
       if (connected) {
         host = session.host.replace(/^\[|\]$/g, '');
-        restoreLocal(host);
+        await restoreLocal(host);
+        if (current !== epoch) return;
         await loadAll(current);
       } else notice = session.connecting ? 'A connection is pending in another tab; disconnect to cancel it.' : 'Not connected.';
     });
@@ -235,7 +270,7 @@
   </aside>
   <main class="main-content">
     <header class="topbar"><div><p class="eyebrow">{demo ? 'Sample home' : 'Your home workspace'}</p><h1>{page === 'Home' ? 'Make yourself at home.' : page === 'Configuration' ? 'A home that feels like yours.' : 'Understand your installation.'}</h1><p>{page === 'Home' ? 'Lights, blinds, and the details that make a room.' : page === 'Configuration' ? 'Plan names and room assignments in your browser first.' : 'Reported resources from your gateway, read only.'}</p></div><span class="badge">{demo ? 'Sample home' : connected ? 'Gateway connected' : 'Local workspace'}</span></header>
-    <div class="mode-banner" role="note"><div><strong>{demo ? 'Sample home · no gateway connected' : 'Personal configuration · saved on this laptop'}</strong><p>{demo ? 'Explore the workspace using simulated lights and blinds.' : 'Names, rooms, and notes are local to your dashboard. Light and blind controls operate your devices normally.'}</p></div></div>
+    <div class="mode-banner" role="note"><div><strong>{demo ? 'Sample home · no gateway connected' : 'Personal configuration · local database'}</strong><p>{demo ? 'Explore the workspace using simulated lights and blinds.' : 'Names, rooms, and notes are saved in SQLite on this computer. Light and blind controls operate your devices normally.'}</p></div></div>
     <section class="status-strip" aria-label="Connection status"><div><p role="status">{notice}</p><p class="muted text-xs">{updated ? `Last successful state update: ${updated}` : demo ? 'Sample values — not gateway readings.' : 'No reported state snapshot yet.'} {stale && connected ? 'Readings are stale or unavailable.' : ''}</p></div><div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-outline" disabled={busy || !connected || demo} onclick={refresh}>Refresh now</button><button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={disconnect}>Disconnect & forget credentials</button></div></section>
     {#if error}<p class="alert alert-error" role="alert">{error}</p>{/if}
     {#if commandNotice}<p class="command-notice" role="status">{commandNotice}</p>{/if}
@@ -252,7 +287,7 @@
       {#if !connected && !demo}<p class="muted">Connect to discover your lights and blinds, or explore the sample home.</p>{:else if !filteredLoads.length}<p class="empty-state">{loads.length ? 'No loads match your filters.' : 'No loads reported by this gateway.'}</p>{/if}
       <div class="load-grid">{#each filteredLoads as load (load.id)}<div class="load-room"><p class="room-caption">{load.personalRoom || 'Unassigned'}{#if mappings[load.id] && mappingMatches(load, mappings[load.id])} · Personal mapping{/if}</p><LoadCard {load} state={states[load.id]} disabled={busy || (!connected && !demo)} {stale} onwrite={write} />{#if load.personalNotes}<p class="personal-notes">{load.personalNotes}</p>{/if}</div>{/each}</div></section>
     {:else if page === 'Configuration'}
-      <ConfigurationPanel {loads} {rooms} {mappings} {busy} {demo} onsave={saveLocal} onremove={removeLocal} onreview={review} onexport={exportLocal} onimport={importLocal} />
+      <ConfigurationPanel {loads} {rooms} {mappings} busy={busy || mappingBusy} {demo} onsave={saveLocal} onremove={removeLocal} onreview={review} onexport={exportLocal} onimport={importLocal} />
     {:else}
       <section aria-labelledby="resources-heading" class="space-y-3"><h2 id="resources-heading" class="section-title">Resource inspector</h2><p class="muted">Read-only diagnostics. Availability depends on your firmware and installation.</p>{#if diagnosticsBusy}<p class="text-sm">Updating diagnostics in the background…</p>{/if}{#each resourceNames as name}<ResourcePanel {name} result={resources[name]} />{/each}</section>
     {/if}

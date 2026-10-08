@@ -52,7 +52,7 @@
   <div class="card configuration-editor"><div class="card-body">
     <p class="eyebrow">Your personal organization</p>
     <h2 class="section-title">Names, rooms & notes</h2>
-    <p class="muted">Save your own labels on this laptop. Lights and blinds still work normally; these settings are never sent to the gateway.</p>
+    <p class="muted">Save your own labels in the local SQLite database. Lights and blinds still work normally; these settings are never sent to the gateway.</p>
     <form onsubmit={save} class="space-y-4">
       <label class="fieldset"><span class="fieldset-legend">Choose a load to configure</span>
         <select class="select w-full" bind:value={selected} disabled={busy}>
@@ -87,11 +87,11 @@
   </div></div>
 
   <div class="card draft-panel"><div class="card-body">
-    <div class="section-heading"><h2 class="section-title">Saved on this laptop</h2><span class="badge">{Object.keys(mappings).length}</span></div>
-    <p class="muted">Personal mappings survive browser restarts and gateway reconnects. Export a JSON file for a portable backup.</p>
+    <div class="section-heading"><h2 class="section-title">Saved in SQLite</h2><span class="badge">{Object.keys(mappings).length}</span></div>
+    <p class="muted">Personal mappings are stored on the computer running this app, independently of your browser. Export a JSON file for a portable backup.</p>
     <div class="flex flex-wrap gap-2">
       <button class="btn btn-sm btn-outline" disabled={!Object.keys(mappings).length} onclick={onexport}>Export mappings</button>
-      <button class="btn btn-sm btn-outline" onclick={() => importInput.click()}>Import mappings</button>
+      <button class="btn btn-sm btn-outline" disabled={busy} onclick={() => importInput.click()}>Import mappings</button>
       <input class="sr-only" tabindex="-1" type="file" accept=".json,application/json" aria-label="Import mappings file" bind:this={importInput} onchange={importFile} />
     </div>
     <p class="muted text-xs">Imports add missing mappings. Existing local entries are kept.</p>

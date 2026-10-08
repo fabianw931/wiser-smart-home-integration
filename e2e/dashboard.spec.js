@@ -200,6 +200,51 @@ test('personal mappings persist across reload and reconnect while controls remai
   await expect(page.getByRole('article', { name: 'Hall light', exact: true })).toBeVisible();
 });
 
+test('database mappings are available in a fresh browser context', async ({ page, browser, gateway }) => {
+  await savePersonalMapping(page, gateway);
+  const context = await browser.newContext();
+  try {
+    const fresh = await context.newPage();
+    await fresh.goto(gateway.url);
+    await expect(fresh.getByRole('article', { name: 'Entrance pendant', exact: true })).toBeVisible();
+    expect(await fresh.evaluate(() => localStorage.length)).toBe(0);
+    expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+  } finally { await context.close(); }
+});
+
+test('legacy browser mappings migrate without replacing existing database entries', async ({ page, gateway }) => {
+  await savePersonalMapping(page, gateway);
+  await page.evaluate(() => localStorage.setItem('wiser-personal-mappings-v1', JSON.stringify({
+    '127.0.0.1': {
+      '1': { identity: '[1,"fake-1",0,"onoff"]', name: 'Old name', room: '', notes: '' },
+      '2': { identity: '[2,"fake-2",0,"dim"]', name: 'Migrated lamp', room: 'Office', notes: 'Legacy note' },
+    },
+  })));
+  await page.reload();
+  await expect(page.getByRole('article', { name: 'Entrance pendant', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('wiser-personal-mappings-v1'))).toBeNull();
+  const response = await page.request.get(`${gateway.url}/api/local/mappings?gateway=127.0.0.1`, { headers: { 'X-Wiser-Client': 'local-poc' } });
+  const { data } = await response.json();
+  expect(data['1'].name).toBe('Entrance pendant');
+  expect(data['2'].name).toBe('Migrated lamp');
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+});
+
+test('failed database saves show an error without blocking device controls', async ({ page, gateway }) => {
+  await connect(page, gateway);
+  await page.route('**/api/local/mappings/1?*', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Database unavailable' }) }));
+  await page.getByRole('button', { name: 'Configuration', exact: true }).click();
+  await page.getByLabel('Choose a load to configure').selectOption('1');
+  await page.getByLabel('Personal display name').fill('Not saved');
+  await page.getByRole('button', { name: 'Save local mapping' }).click();
+  await expect(page.getByRole('alert')).toContainText('Mapping was not saved');
+  await expect(page.getByRole('article', { name: 'Mapping for Not saved' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  const hall = page.getByRole('article', { name: 'Hall light', exact: true });
+  await hall.getByRole('button', { name: 'On', exact: true }).click();
+  await expect(hall.getByTestId('reported-state')).toHaveText('Reported: On');
+});
+
 test('gateway metadata is a separate reviewed action and keeps personal mapping', async ({ page, gateway }) => {
   await savePersonalMapping(page, gateway);
   await page.getByText('Change gateway metadata…', { exact: true }).click();

@@ -2,7 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createApp, validateHost, validateTarget } from '../server.js';
+
+const personalMapping = { identity: '[1,null,null,"dim"]', name: 'My light', room: 'My room', notes: 'My note' };
 
 async function listen(server) {
   server.listen(0, '127.0.0.1');
@@ -73,6 +78,80 @@ test('gateway host accepts canonical addresses and DNS names, rejects URL inject
   for (const host of ['', 'http://wiser', 'wiser:80', 'wiser/path', 'user@wiser', 'wiser?x=1', 'wiser#x', ' wiser', 'wiser\n', '127.1', '2130706433', '0177.0.0.1', '0x7f000001', '-bad.local', '[::1]']) {
     assert.throws(() => validateHost(host), undefined, host);
   }
+});
+
+test('local mapping CRUD and import work disconnected without gateway requests or live intent', async t => {
+  const f = await fixture(t);
+  const base = '/api/local/mappings';
+  const localHeaders = { 'X-Wiser-Intent': undefined, 'X-Wiser-Scope': undefined };
+  assert.deepEqual((await f.request(`${base}?gateway=wiser.local`)).body, { data: {} });
+  const saved = await f.request(`${base}/1?gateway=WISER.LOCAL`, 'PUT', personalMapping, localHeaders);
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body, { data: { 1: personalMapping } });
+  assert.deepEqual((await f.request(`${base}?gateway=other.local`)).body.data, {});
+  const imported = await f.request(`${base}/import?gateway=wiser.local`, 'POST', { mappings: { 1: { ...personalMapping, name: 'Imported' }, 2: personalMapping } });
+  assert.deepEqual(imported.body.data, { 1: personalMapping, 2: personalMapping });
+  assert.deepEqual((await f.request(`${base}/1?gateway=wiser.local`, 'DELETE')).body.data, { 2: personalMapping });
+  assert.equal((await f.request(`${base}/3?gateway=2001%3Adb8%3A%3A1`, 'PUT', personalMapping, localHeaders)).status, 200);
+  assert.equal((await f.request(`${base}/4?gateway=sample-home`, 'PUT', personalMapping, localHeaders)).status, 200);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await f.request('/api/session')).body.connected, false);
+});
+
+test('local mappings enforce gateway, fields, collection and local request protections', async t => {
+  const f = await fixture(t);
+  const base = '/api/local/mappings';
+  for (const query of ['', '?gateway=', '?gateway=wiser.local&gateway=other.local', '?gateway=wiser.local&extra=1', '?gateway=http%3A%2F%2Fwiser.local', '?gateway=127.1']) {
+    assert.equal((await f.request(`${base}${query}`)).status, 400, query);
+  }
+  for (const mapping of [{ ...personalMapping, token: 'secret' }, { ...personalMapping, name: '' }, { ...personalMapping, notes: 'x'.repeat(1001) }]) {
+    assert.equal((await f.request(`${base}/1?gateway=wiser.local`, 'PUT', mapping)).status, 400);
+  }
+  assert.equal((await f.request(`${base}/import?gateway=wiser.local`, 'POST', { mappings: { 1: personalMapping, 2: { ...personalMapping, room: 1 } } })).status, 400);
+  assert.deepEqual((await f.request(`${base}?gateway=wiser.local`)).body.data, {});
+  for (const headers of [{ 'X-Wiser-Client': undefined }, { Origin: 'http://evil.local' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+    assert.equal((await f.request(`${base}/1?gateway=wiser.local`, 'PUT', personalMapping, headers)).status, 403, JSON.stringify(headers));
+  }
+  const badHost = await new Promise((resolve, reject) => {
+    const req = http.get(`http://127.0.0.1:${f.appPort}${base}?gateway=wiser.local`, { headers: { Host: 'evil.local', 'X-Wiser-Client': 'local-poc' } }, res => {
+      res.resume(); resolve(res.statusCode);
+    });
+    req.on('error', reject);
+  });
+  assert.equal(badHost, 403);
+  assert.equal((await f.request(`${base}/import?gateway=wiser.local`, 'POST', { mappings: {}, extra: true })).status, 400);
+  assert.equal((await f.request(`${base}/nope?gateway=wiser.local`, 'DELETE')).status, 404);
+  assert.equal(f.calls.length, 0);
+});
+
+test('local import accepts validated collections larger than gateway request limits', async t => {
+  const f = await fixture(t);
+  const mappings = Object.fromEntries(Array.from({ length: 12 }, (_, id) => [id, { ...personalMapping, notes: 'x'.repeat(1000) }]));
+  const result = await f.request('/api/local/mappings/import?gateway=sample-home', 'POST', { mappings });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.data, mappings);
+  assert.equal(f.calls.length, 0);
+});
+
+test('local API mappings persist after the app server closes and restarts', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'wiser-api-')), 'wiser.sqlite');
+  let app = createApp({ dbPath });
+  let port = await listen(app);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/local/mappings/1?gateway=sample-home`, {
+      method: 'PUT', headers: { 'X-Wiser-Client': 'local-poc', 'Content-Type': 'application/json' },
+      body: JSON.stringify(personalMapping),
+    });
+    assert.equal(response.status, 200);
+    await response.json();
+  } finally { await close(app); }
+  app = createApp({ dbPath });
+  port = await listen(app);
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/local/mappings?gateway=sample-home`, { headers: { 'X-Wiser-Client': 'local-poc' } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { data: { 1: personalMapping } });
+  } finally { await close(app); }
 });
 
 test('target validation is strict and respects discovered load type', () => {

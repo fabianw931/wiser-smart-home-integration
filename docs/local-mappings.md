@@ -20,15 +20,19 @@ Open **Configuration**, choose a load, and enter a personal display name, room l
 
 Saving, removing, importing, or exporting personal mappings makes no gateway requests. A mapping is your own dashboard organization, not a pending change to be applied to the installation. Changes to the installer's names or rooms do not overwrite your labels.
 
-Mappings use the gateway address plus the load's physical identity (ID, device, channel, type). They survive reloads, disconnect/reconnect, and browser restarts in the same browser profile and app origin. A missing load or changed identity retains its saved mapping but does not use it automatically.
+Mappings use the gateway address plus the load's physical identity (ID, device, channel, type). They survive reloads, disconnect/reconnect, browser changes, and server restarts when using the same database. A missing load or changed identity retains its saved mapping but does not use it automatically.
 
 ## Saving on your laptop
 
-Personal mappings are stored in browser **localStorage**, not sessionStorage. Credentials are never included. Clearing browser site data removes them; changing the app's hostname or port uses a different browser storage origin. Use a consistent gateway address: switching between its IP and hostname creates a separate mapping scope.
+Personal mappings are stored in **SQLite** on the computer running the app, by default at `data/wiser.sqlite` relative to the repository. `WISER_DB_PATH=/absolute/path/wiser.sqlite npm start` selects another file. Node.js 22.13+ supplies SQLite without an extra database service. The database stores gateway address, load ID, physical identity, personal name, room label, notes, and update timestamp; credentials and raw gateway responses are never stored. Database files are ignored by Git and created with owner-only permissions on Unix.
+
+Existing localStorage mappings migrate when that gateway is opened in the original browser. Existing database entries win; browser entries are cleared only after successful import. Migration failure retains the browser copy. Clearing browser site data after migration no longer deletes your mappings. Use a consistent gateway address: switching between its IP and hostname creates a separate mapping scope.
 
 **Export mappings** downloads a versioned JSON file to your laptop. Keep this file as a portable backup. **Import mappings** validates the file's gateway and fields, adds missing entries, and keeps existing entries. If you want to replace a local entry, remove that entry before importing. Import does not alter the gateway.
 
-If browser storage is unavailable, edits remain in memory and the UI tells you to export before closing the page. Files contain household labels and notes, so keep them private. Do not put credentials in personal notes.
+Failed database writes show an error and are not presented as saved. Device controls remain independent. For a complete database backup, stop the server and copy `data/wiser.sqlite`; restore it while the server is stopped. JSON exports are portable, per-gateway backups. Files contain household labels and notes, so keep them private. Do not put credentials in personal notes.
+
+Only personal mappings are persisted so far. Discovered device inventory and live state are not cached, so editing a real installation in the UI still requires connecting. This is the next offline-configuration milestone.
 
 ## Real gateway changes, separately
 

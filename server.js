@@ -3,6 +3,8 @@ import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { createMappingStore, DEFAULT_DB_PATH } from './storage.js';
+import { validateMappings } from './src/mappings.js';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
   'sensors', 'hvacgroups', 'hvacgroups/state']);
@@ -58,19 +60,20 @@ export function validateTarget(load, value) {
   if (load.type === 'onoff' && ![0, 10000].includes(value.bri)) invalid('On/off loads accept only 0 or 10000.');
 }
 
-async function body(req) {
+async function body(req, limit = 8192) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw new AppError(415, 'JSON required.');
   let text = '';
   for await (const chunk of req) {
     text += chunk;
-    if (Buffer.byteLength(text) > 8192) throw new AppError(413, 'Request too large.');
+    if (Buffer.byteLength(text) > limit) throw new AppError(413, 'Request too large.');
   }
   try { return JSON.parse(text); } catch { invalid('Invalid JSON.'); }
 }
 
 // Factory permits tests to use an ephemeral fake gateway, without exposing a port
 // override or arbitrary URL through the public API.
-export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000 } = {}) {
+export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:' } = {}) {
+  const store = createMappingStore(dbPath);
   let session = null;
   let generation = 0;
   let connecting = false;
@@ -159,6 +162,29 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       if (!path.startsWith('/api/')) throw new AppError(404, 'Not found.');
       // Custom header prevents form submissions and cross-origin simple requests.
       if (req.headers['x-wiser-client'] !== 'local-poc') throw new AppError(403, 'Local app header required.');
+      if (path.startsWith('/api/local/')) {
+        const url = new URL(path, 'http://localhost');
+        const route = /^\/api\/local\/mappings(?:\/(import|\d{1,10}))?$/.exec(url.pathname);
+        if (!route) throw new AppError(404, 'Endpoint not allowed.');
+        if ([...url.searchParams.keys()].some(key => key !== 'gateway') || url.searchParams.getAll('gateway').length !== 1 || url.hash) invalid('Supply one gateway key only.');
+        const inputGateway = url.searchParams.get('gateway');
+        const gatewayKey = inputGateway === 'sample-home' ? inputGateway : validateHost(inputGateway).replace(/^\[|\]$/g, '');
+        const id = route[1];
+        const validate = value => {
+          try { return validateMappings(value); } catch (error) { invalid(error.message); }
+        };
+        if (req.method === 'GET' && !id) return reply(200, { data: store.list(gatewayKey) });
+        if (req.method === 'PUT' && id && id !== 'import') {
+          const mappings = validate({ [id]: await body(req) });
+          store.put(gatewayKey, id, mappings[id]);
+        } else if (req.method === 'DELETE' && id && id !== 'import') store.remove(gatewayKey, id);
+        else if (req.method === 'POST' && id === 'import') {
+          const input = await body(req, 2 * 1024 * 1024);
+          keys(input, ['mappings']);
+          store.merge(gatewayKey, validate(input.mappings));
+        } else throw new AppError(404, 'Endpoint not allowed.');
+        return reply(200, { data: store.list(gatewayKey) });
+      }
       if (req.method === 'GET' && path === '/api/session') return reply(200, { connected: !!session, host: session?.host || null, connecting, draftScope: session?.draftScope || null });
       if (req.method === 'POST' && path === '/api/disconnect') {
         reset();
@@ -281,12 +307,12 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         { error: error instanceof AppError ? error.message : 'Local server error.' });
     }
   });
-  server.on('close', reset);
+  server.on('close', () => { reset(); store.close(); });
   return server;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
-  createApp().listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
+  createApp({ dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
 }
