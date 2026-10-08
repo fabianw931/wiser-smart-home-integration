@@ -42,13 +42,21 @@
   }
 </script>
 
-<article class="card control-card bg-base-100 border border-base-300 shadow-sm" aria-labelledby={`load-${load.id}`}>
+<article class="card control-card bg-base-100 border border-base-300 shadow-sm" class:is-on={!motor && writable && validPrimary && value > 0 && !stale} aria-labelledby={`load-${load.id}`}>
   <div class="card-body">
     <div class="control-card-header flex justify-between items-start gap-2">
-      <h3 id={`load-${load.id}`} class="card-title break-words">{name}</h3>
+      <div class="load-heading">
+        <span class="device-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            {#if motor}<path d="M4 3h16v14H4zM4 7h16M4 11h16M4 15h16M12 17v4m-3 0h6" />
+            {:else}<path d="M9 18h6m-5 3h4M8 14a6 6 0 1 1 8 0c-1 .8-1 1.8-1 2H9c0-.2 0-1.2-1-2Z" />{/if}
+          </svg>
+        </span>
+        <h3 id={`load-${load.id}`} class="card-title break-words">{name}</h3>
+      </div>
       <span class="badge badge-outline shrink-0">{load.type}</span>
     </div>
-    <p class="text-xs text-base-content/65">{motor ? 'Blind position' : subtype === 'tw' ? 'Tunable white lighting' : subtype === 'rgb' ? 'Color & white lighting' : load.type === 'onoff' ? 'Switched light' : 'Dimmable lighting'}</p>
+    <p class="text-xs text-base-content/65">{!writable ? 'Read-only channel' : motor ? 'Blind position' : subtype === 'tw' ? 'Tunable white lighting' : subtype === 'rgb' ? 'Color & white lighting' : load.type === 'onoff' ? 'Switched light' : 'Dimmable lighting'}</p>
     <p class="reported-value text-xl font-semibold" data-testid="reported-state">Reported: {reported}</p>
     {#if rgbValid}<div class="color-sample" style:background={rgbColor} role="img" aria-label={`Reported color: red ${state.red}, green ${state.green}, blue ${state.blue}`}></div>{/if}
     {#each colorFields as channel}

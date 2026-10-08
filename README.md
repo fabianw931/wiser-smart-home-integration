@@ -36,6 +36,10 @@ npm start
 6. **Diagnostics** shows optional read-only resources. Core state polling runs 30 seconds after requests finish; slow diagnostics do not block controls.
 7. **Disconnect & forget credentials** clears the server session. Closing the browser alone does not clear its gateway token.
 
+### Appearance
+
+Use **Appearance** in the sidebar to choose **System**, **Light**, or **Dark**. System follows your operating system automatically; an explicit choice is remembered in this browser. This preference is separate from SQLite personal mappings and never affects gateway controls.
+
 ### Safety and limitations
 
 - **This is a local unauthenticated app controlling real equipment.** Anyone or any program with access to this local service can use its current gateway session. All tabs share one in-memory connection; use one tab. Do not expose, reverse-proxy, forward, or tunnel its port. It is not a multi-user service or a production home-automation controller.

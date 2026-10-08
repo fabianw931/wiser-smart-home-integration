@@ -1,4 +1,5 @@
 <script>
+  import ThemePicker from './components/ThemePicker.svelte';
   import { onMount, onDestroy } from 'svelte';
   import { createApi } from './api.js';
   import ConnectionForm from './components/ConnectionForm.svelte';
@@ -266,6 +267,7 @@
   <aside class="sidebar">
     <div><div class="brand">wiser<span class="brand-accent">.</span></div><p class="brand-caption">Your home, connected</p></div>
     <nav aria-label="Main navigation">{#each ['Home', 'Configuration', 'Diagnostics'] as item}<button class:active={page === item} aria-current={page === item ? 'page' : undefined} onclick={() => page = item}>{item}</button>{/each}</nav>
+    <ThemePicker />
     <div class="sidebar-footer">Wiser by Feller<br>Local control workspace<br>{demo ? 'Sample home' : connected ? host : 'No gateway connected'}</div>
   </aside>
   <main class="main-content">
@@ -283,7 +285,7 @@
     {/if}
     {#if page === 'Home'}
       <section aria-labelledby="loads-heading"><div class="section-heading"><h2 id="loads-heading" class="section-title">Your lights & blinds</h2><span class="muted text-sm">{demo ? 'Sample installation' : 'Reported installation'}</span></div>
-      {#if connected || demo}<div class="toolbar"><label class="search-label"><span class="sr-only">Search loads</span><input class="input w-full" bind:value={search} placeholder="Search lights or blinds…" /></label><label><span class="sr-only">Filter by room</span><select class="select" bind:value={roomFilter}><option value="">All rooms</option>{#each roomLabels as room}<option value={room}>{room}</option>{/each}<option value="unassigned">Unassigned</option></select></label></div>{/if}
+      {#if connected || demo}<div class="toolbar"><label class="search-label"><span class="sr-only">Search loads</span><input class="input w-full" bind:value={search} placeholder="Search lights or blinds…" /></label><label><span class="sr-only">Filter by room</span><select class="select" bind:value={roomFilter}><option value="">All rooms</option>{#each roomLabels as room}<option value={room}>{room}</option>{/each}<option value="unassigned">Unassigned</option></select></label><span class="result-count" aria-live="polite">{filteredLoads.length} of {loads.length} loads</span>{#if search || roomFilter}<button class="btn btn-sm btn-ghost" onclick={() => { search = ''; roomFilter = ''; }}>Clear filters</button>{/if}</div>{/if}
       {#if !connected && !demo}<p class="muted">Connect to discover your lights and blinds, or explore the sample home.</p>{:else if !filteredLoads.length}<p class="empty-state">{loads.length ? 'No loads match your filters.' : 'No loads reported by this gateway.'}</p>{/if}
       <div class="load-grid">{#each filteredLoads as load (load.id)}<div class="load-room"><p class="room-caption">{load.personalRoom || 'Unassigned'}{#if mappings[load.id] && mappingMatches(load, mappings[load.id])} · Personal mapping{/if}</p><LoadCard {load} state={states[load.id]} disabled={busy || (!connected && !demo)} {stale} onwrite={write} />{#if load.personalNotes}<p class="personal-notes">{load.personalNotes}</p>{/if}</div>{/each}</div></section>
     {:else if page === 'Configuration'}

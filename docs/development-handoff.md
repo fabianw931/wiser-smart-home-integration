@@ -17,6 +17,7 @@ The current milestone extends the Svelte dashboard with personal configuration a
 ## Delivered
 
 - Room-oriented Home, Configuration, and Diagnostics pages, search, room filtering, responsive teal/cream design, and accessible form labels.
+- System/light/dark appearance selector, browser-local preference persistence, live system-theme updates, refined stat tiles, device icons and reported-on highlights, filter counts/reset, and larger touch targets. Appearance does not change device behavior.
 - On/off, dimming, blind position, DALI brightness, tunable white, and RGBW controls. Connected controls send real commands immediately; there is no enable-live switch.
 - Brightness and blind inputs use percentages with 0.01% precision, translated to integer API values 0–10000. Separate RGBW inputs preserve unrelated channels.
 - Personal names, custom room labels, and notes saved in SQLite (`data/wiser.sqlite`), with validated JSON export/import. Mappings persist through browser/server restarts and gateway reconnects; old browser entries migrate automatically without replacing existing database entries.
@@ -42,7 +43,7 @@ Open http://127.0.0.1:3000. Use **Explore sample home** for a disconnected demon
 - Svelte checks: zero errors and warnings.
 - Production build: passed.
 - Node tests: 39 passed (32 backend, 3 SQLite, 4 mapping tests).
-- Browser tests: 16 passed using installed Chrome and a simulated gateway, including legacy migration, fresh-browser persistence, and failed-save recovery.
+- Browser tests: 19 passed using installed Chrome and a simulated gateway, including migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
 - Screenshots: desktop and 375px mobile layouts generated and reviewed.
 - Physical gateway: not tested.
 

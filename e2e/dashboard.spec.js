@@ -1,5 +1,63 @@
 import { test, expect } from './gateway-fixture.js';
 
+test('appearance follows the system and remembers an explicit override', async ({ page, gateway }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(gateway.url);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByLabel('Appearance')).toHaveValue('system');
+  await page.getByLabel('Appearance').selectOption('light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.reload();
+  await expect(page.getByLabel('Appearance')).toHaveValue('light');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByLabel('Appearance').selectOption('system');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(gateway.control.calls).toEqual([]);
+});
+
+test('dark workspace supports controls, configuration, dialogs and mobile layouts', async ({ page, gateway }, testInfo) => {
+  await savePersonalMapping(page, gateway);
+  await page.getByLabel('Appearance').selectOption('dark');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('dark-configuration.png'), fullPage: true });
+  await page.getByText('Change gateway metadata…', { exact: true }).click();
+  await page.getByLabel('Gateway display name').fill('Reviewed only');
+  await page.getByRole('button', { name: 'Review gateway change' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('dark-dialog.png') });
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  const lamp = page.getByRole('article', { name: 'Entrance pendant', exact: true });
+  await lamp.getByRole('button', { name: 'On', exact: true }).click();
+  await expect(lamp).toHaveClass(/is-on/);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('dark-home.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(page.getByLabel('Appearance')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('dark-mobile.png'), fullPage: true });
+  await page.getByLabel('Search loads').fill('No matching device');
+  await expect(page.getByText('No loads match your filters.')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(lamp).toBeVisible();
+  expect(gateway.control.calls.filter(call => call.method === 'PATCH')).toEqual([]);
+});
+
+test('appearance remains usable when browser storage is blocked', async ({ page, gateway }) => {
+  await page.addInitScript(() => {
+    Storage.prototype.getItem = () => { throw new Error('Blocked'); };
+    Storage.prototype.setItem = () => { throw new Error('Blocked'); };
+  });
+  await page.goto(gateway.url);
+  await page.getByLabel('Appearance').selectOption('dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(page.getByText(/Theme changed for this visit/)).toBeVisible();
+});
+
 async function connect(page, gateway) {
   await page.goto(gateway.url);
   await page.getByLabel(/Gateway IP or hostname/).fill('127.0.0.1');
