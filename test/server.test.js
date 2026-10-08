@@ -81,6 +81,61 @@ test('target validation is strict and respects discovered load type', () => {
   ]) assert.throws(() => validateTarget(load, target));
 });
 
+test('DALI target validation respects subtype ranges and permits partial targets', () => {
+  for (const [sub_type, target] of [
+    [undefined, { bri: 0 }], ['', { bri: 10000 }],
+    ['tw', { bri: 1234, ct: 1000 }], ['tw', { ct: 20000 }],
+    ['rgb', { bri: 10000, red: 0, green: 255, blue: 128, white: 255 }],
+    ['rgb', { red: 1 }], ['rgb', { white: 0 }],
+  ]) assert.doesNotThrow(() => validateTarget({ type: 'dali', sub_type }, target));
+  for (const sub_type of [undefined, '', 'tw', 'rgb']) {
+    for (const target of [{}, null, [], { bri: '1' }, { bri: 1.2 }, { bri: -1 }, { bri: 10001 }, { extra: 1 }]) {
+      assert.throws(() => validateTarget({ type: 'dali', sub_type }, target));
+    }
+  }
+  for (const [sub_type, target] of [
+    [undefined, { ct: 1000 }], ['', { red: 1 }],
+    ['tw', { red: 1 }], ['tw', { ct: 999 }], ['tw', { ct: 20001 }], ['tw', { ct: 1000.5 }], ['tw', { ct: '1000' }],
+    ['rgb', { ct: 1000 }],
+    ...['red', 'green', 'blue', 'white'].flatMap(field => [-1, 256, 1.5, '1', null, true].map(value => ['rgb', { [field]: value }])),
+    ['other', { bri: 1 }], [null, { bri: 1 }], [0, { bri: 1 }],
+  ]) assert.throws(() => validateTarget({ type: 'dali', sub_type }, target));
+  assert.throws(() => validateTarget({ type: 'dali', sub_type: 'rgb', unused: true }, { red: 1 }));
+});
+
+test('DALI proxy forwards multi-field and partial targets and rejects incompatible writes locally', async t => {
+  const loads = [
+    { id: 5, type: 'dali' }, { id: 6, type: 'dali', sub_type: 'tw' },
+    { id: 7, type: 'dali', sub_type: 'rgb' }, { id: 8, type: 'dali', sub_type: 'unknown' },
+    { id: 9, type: 'dali', sub_type: 'rgb', unused: true },
+  ];
+  const f = await fixture(t, { onGateway(req, res) {
+    if (req.url !== '/api/loads') return false;
+    res.end(JSON.stringify({ status: 'success', data: loads }));
+    return true;
+  } });
+  await f.connect();
+  const beforeDiscovery = f.calls.length;
+  assert.equal((await f.request('/api/loads/7/target_state', 'PUT', { red: 1 })).status, 400);
+  assert.equal(f.calls.length, beforeDiscovery);
+  assert.equal((await f.request('/api/read/loads')).status, 200);
+  for (const [id, payload] of [[5, { bri: 1234 }], [6, { bri: 5000, ct: 4000 }], [6, { ct: 20000 }],
+    [7, { bri: 5000, red: 255, green: 0, blue: 127, white: 12 }], [7, { blue: 22 }]]) {
+    assert.equal((await f.request(`/api/loads/${id}/target_state`, 'PUT', payload)).status, 200);
+    assert.deepEqual(f.calls.at(-1), { path: `/api/loads/${id}/target_state`, method: 'PUT', token: 'Bearer fake-secret', payload });
+  }
+  const beforeInvalid = f.calls.length;
+  for (const [id, payload] of [[5, { ct: 4000 }], [6, { red: 1 }], [7, { ct: 4000 }],
+    [7, { red: 256 }], [7, {}], [8, { bri: 1 }], [9, { red: 1 }]]) {
+    assert.equal((await f.request(`/api/loads/${id}/target_state`, 'PUT', payload)).status, 400);
+  }
+  assert.equal(f.calls.length, beforeInvalid);
+  await f.request('/api/disconnect', 'POST', {});
+  const beforeDisconnected = f.calls.length;
+  assert.equal((await f.request('/api/loads/7/target_state', 'PUT', { red: 1 })).status, 409);
+  assert.equal(f.calls.length, beforeDisconnected);
+});
+
 test('connect, discover, validate and proxy targets; optional failures remain isolated', async t => {
   const f = await fixture(t);
   assert.equal((await f.connect()).status, 200);

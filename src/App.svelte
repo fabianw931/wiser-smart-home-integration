@@ -19,6 +19,7 @@
   let loads = [];
   let states = {};
   let resources = {};
+  let diagnosticsBusy = false;
   let epoch = 0;
   let timer;
 
@@ -44,7 +45,7 @@
     }
   }
   const read = async resource => (await api.request(`/api/read/${resource}`)).data;
-  async function loadAll(current) {
+  async function loadAll(current, diagnostics = true) {
     const discovered = await read('loads');
     if (current !== epoch) return;
     loads = discovered;
@@ -62,12 +63,21 @@
       error = failure.message;
       notice = 'Connected — state unavailable; old readings are stale.';
     }
-    for (const name of resourceNames) {
-      let result;
-      try { result = { data: await read(name) }; }
-      catch (failure) { result = { error: failure.message, unsupported: [404, 405, 501].includes(failure.status) }; }
-      if (current !== epoch) return;
-      resources = { ...resources, [name]: result };
+    if (diagnostics && current === epoch) void refreshDiagnostics(current);
+  }
+  async function refreshDiagnostics(current) {
+    if (diagnosticsBusy) return;
+    diagnosticsBusy = true;
+    try {
+      for (const name of resourceNames) {
+        let result;
+        try { result = { data: await read(name) }; }
+        catch (failure) { result = { error: failure.message, unsupported: [404, 405, 501].includes(failure.status) }; }
+        if (current !== epoch) return;
+        resources = { ...resources, [name]: result };
+      }
+    } finally {
+      if (current === epoch) diagnosticsBusy = false;
     }
   }
   function refresh() { return operation(current => loadAll(current)); }
@@ -90,7 +100,7 @@
       await api.request(`/api/loads/${load.id}/target_state`, 'PUT', target);
       if (current !== epoch) return;
       commandNotice = `Target accepted for ${load.name || `Load ${load.id}`}. Check the reported state and physical device; acceptance is not confirmation of movement.`;
-      await loadAll(current);
+      await loadAll(current, false);
     });
   }
   async function disconnect() {
@@ -105,6 +115,7 @@
     loads = [];
     states = {};
     resources = {};
+    diagnosticsBusy = false;
     updated = '';
     commandNotice = '';
     error = '';
@@ -171,6 +182,7 @@
   <section aria-labelledby="resources-heading" class="space-y-3">
     <h2 id="resources-heading" class="text-xl font-semibold">Resource inspector</h2>
     <p class="text-sm text-base-content/70">Read-only diagnostics. Availability depends on your firmware and installation.</p>
+    {#if diagnosticsBusy}<p class="text-sm">Updating diagnostics in the background…</p>{/if}
     {#each resourceNames as name}<ResourcePanel {name} result={resources[name]} />{/each}
   </section>
 </main>

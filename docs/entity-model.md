@@ -58,7 +58,15 @@ Brightness examples use the scale **0–10000**: `0` is off and `10000` is fully
 
 The official motor tutorial's level convention is **0 = open** and **10000 = closed**; motor tilt is a **step count, not degrees**. Verify installation orientation and actual behavior before controlling a real blind. Do not infer tilt degrees or assume that target-platform stop semantics are interchangeable.
 
-The product portfolio includes DALI DT8 color-capable hardware. This tutorial's three basic types are not sufficient evidence for the exact color-control schema on current firmware.
+The 6.0.47 OpenAPI schema also describes DALI load subtypes. The current dashboard supports these target fields:
+
+| DALI subtype | Target fields | Validation |
+| --- | --- | --- |
+| Empty or missing (`type: dali`) | `bri` | Integer 0–10000 |
+| `tw` | `bri`, `ct` | `bri` integer 0–10000; `ct` integer 1000–20000 in API units, not confirmed Kelvin |
+| `rgb` | `bri`, `red`, `green`, `blue`, `white` | `bri` integer 0–10000; color channels each integer 0–255 |
+
+The UI forms submit only fields supported by the selected subtype, and backend target validation is strict. Unrecognized subtypes are read-only. Missing or invalid primary readings disable the affected card. These controls do not implement full device or DALI group configuration. See the [DALI load subtype schema](https://github.com/Feller-AG/wiser-api/blob/main/docs/6.0.47/ugateway_openapi_domain_public.yaml#L885); hardware behavior remains unverified.
 
 ## Read and control endpoints
 

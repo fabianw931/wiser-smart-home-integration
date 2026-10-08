@@ -30,9 +30,9 @@ npm start
 
 1. Enter your commissioned Wiser by Feller gateway's IP address or hostname, without a URL scheme, port, or path. The gateway must be reachable over HTTP port 80.
 2. Either supply an existing bearer token and click **Connect**, or select **Pair new client**, click **Start pairing**, and press a flashing physical gateway button within approximately **30 seconds**. Pairing sends `POST /api/account/claim` with a generated unique `local-poc-<UUID>` username. The backend allows up to 45 seconds for the claim response.
-3. Inspect discovered loads and their reported states before operating equipment. On/off lights support off/on; dimmers support integer brightness **0–10000**.
+3. Inspect discovered loads and their reported states before operating equipment. On/off lights support off/on; dimmers and recognized DALI loads support integer brightness **0–10000**. DALI `tw` loads also support `ct` **1000–20000**; `rgb` loads support separate red, green, blue, and white targets **0–255**. Each form sends only its own field. Missing or invalid brightness/position readings disable that load's controls.
 4. Blinds support integer target **level 0–10000**, explicitly labeled **0 = open, 10000 = closed**, following the [official load tutorial](https://github.com/Feller-AG/wiser-tutorial/blob/main/doc/api_loads.md). Verify installation orientation and keep the path clear. Tilt, button simulation, stop, calibration, and HVAC writes are deliberately omitted. Tilt is a count of motor tilt commands, not an angle or percentage; a motor button click can stop movement or tilt when idle, so this POC does not present it as an unconditional stop.
-5. Use **Refresh now** or leave the page open for polling, scheduled 30 seconds after each completed refresh. Requests are sequential within the page, and failures of optional resources are shown separately. Unknown/unused load types and rooms, devices, sensors, and HVAC groups/states are read-only.
+5. Use **Refresh now** or leave the page open for polling, scheduled 30 seconds after each completed core refresh. Core load definitions and states refresh sequentially. Six optional diagnostic resources load in a separate sequential background pass that may overlap core refresh; their failures are shown separately. Load commands do not trigger diagnostic reads. Unknown/unused load subtypes and rooms, devices, sensors, and HVAC groups/states are read-only.
 6. Click **Disconnect & forget credentials** when finished, or stop the Node process with Ctrl+C. Closing the browser alone does **not** clear the server session.
 
 ### Safety and limitations
@@ -44,7 +44,7 @@ npm start
 - Only fixed read endpoints (`info`, `loads`, `loads/state`, `rooms`, `devices`, `sensors`, `hvacgroups`, `hvacgroups/state`), account claim, and validated targets for discovered loads are proxied. There is no generic URL proxy. No job execution, identification, commissioning, calibration, or other potentially side-effecting GET discovery is performed.
 - Gateway host validation allows IP addresses and DNS hostnames, not arbitrary URLs/ports/paths. It does not enforce a private-address subnet or pin hostname resolution; only enter a gateway you trust, preferably its known IP address. Redirects are not followed.
 - Optional resources vary by firmware and may show **unsupported** or an error. Read-only JSON preserves gateway fields without inventing sensor units or HVAC behavior. A write acknowledgement is not physical-state confirmation; the page refreshes reported state after writes. No fabricated demo data is displayed.
-- No WebSocket subscription, automatic token persistence, cloud access, account management, color controls, or hardware integration test is included. Polling and real equipment behavior still require validation on your installation.
+- No WebSocket subscription, automatic token persistence, cloud access, account management, full device/DALI group configuration, or hardware integration test is included. Limited DALI color and tunable-white target controls are available for recognized load subtypes. Polling and real equipment behavior still require validation on your installation.
 
 ### Tests
 
@@ -53,9 +53,9 @@ npm run check
 npm test
 ```
 
-`npm test` builds the frontend and runs **17 backend tests** against a fake HTTP gateway on loopback. They cover validation, discovery and write allowlisting, credential redaction, unsupported resources, timeouts, redirects, and cancellation races. `npm run check` checks the Svelte components.
+`npm test` builds the frontend and runs **19 backend tests** against a fake HTTP gateway on loopback. They cover validation, discovery and write allowlisting, credential redaction, unsupported resources, timeouts, redirects, and cancellation races. `npm run check` checks the Svelte components.
 
-For the **five browser tests**, point Playwright at an existing Chrome/Chromium executable:
+To run the browser tests, point Playwright at an existing Chrome/Chromium executable:
 
 ```sh
 # POSIX example; replace the path for your machine.

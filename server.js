@@ -37,6 +37,20 @@ export function validateHost(host) {
 
 export function validateTarget(load, value) {
   if (!load || load.unused) invalid('Select an active discovered load.');
+  if (load.type === 'dali') {
+    const ranges = { bri: [0, 10000] };
+    if (load.sub_type === 'tw') ranges.ct = [1000, 20000];
+    else if (load.sub_type === 'rgb') {
+      for (const channel of ['red', 'green', 'blue', 'white']) ranges[channel] = [0, 255];
+    } else if (load.sub_type !== undefined && load.sub_type !== '') invalid('This DALI subtype is read-only.');
+    keys(value, Object.keys(ranges));
+    if (!Object.keys(value).length) invalid('Supply at least one target field.');
+    for (const [field, target] of Object.entries(value)) {
+      const [minimum, maximum] = ranges[field];
+      if (!Number.isInteger(target) || target < minimum || target > maximum) invalid(`${field} must be an integer from ${minimum} to ${maximum}.`);
+    }
+    return;
+  }
   const field = load.type === 'motor' ? 'level' : ['onoff', 'dim'].includes(load.type) ? 'bri' : null;
   if (!field) invalid('This load type is read-only.');
   keys(value, [field]);

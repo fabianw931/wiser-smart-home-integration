@@ -22,8 +22,8 @@ Branch: `checkpoint/wiser-poc-restart`.
 - **Svelte + Vite**, with locally built **Tailwind + daisyUI** styling.
 - Components for connection setup, load controls, and read-only resource inspection.
 - Gateway IP/hostname entry, existing-token connection, or physical-button pairing with a generated unique account name.
-- Discovery and reported state for lights and blinds. On/off, numeric dimming, and blind-position targets; no speculative HVAC, tilt, or stop controls.
-- Manual refresh and sequential polling; visible request failures, last update, stale-state indicators, and controls disabled when state refresh fails.
+- Discovery and reported state for lights and blinds. On/off, numeric dimming, blind-position, and DALI targets with empty/missing, `tw`, or `rgb` subtypes; unknown subtypes remain read-only. No HVAC, tilt, or stop controls.
+- Sequential core refresh and 30-second polling after core completion. Six optional diagnostic resources load in a separate sequential background pass that can overlap core reads; commands do not trigger diagnostic reads. Missing or invalid primary readings disable the affected card.
 - Command acceptance is displayed separately from reported/physical state.
 - Existing local Node proxy protections retained: localhost binding, Host/Origin checks, custom client header, fixed endpoints, validated targets, redirect rejection, and credential redaction.
 - Server-memory credentials only; disconnect aborts outstanding requests and forgets the local session.
@@ -52,12 +52,14 @@ See [README](../README.md) for commands, environment details, and restrictions; 
 | --- | --- |
 | Svelte component check | Zero errors and warnings |
 | Vite production build | Passed |
-| Backend suite | 17 tests passed, simulated gateway |
-| Playwright browser suite | 5 tests passed using installed Google Chrome |
-| Narrow layout | 375px viewport passed overflow check; captured screenshot inspected |
+| Backend suite | 19 tests passed, simulated gateway |
+| Playwright browser suite | 8 tests passed using installed Google Chrome |
+| Narrow layout | 375px overflow check passed; screenshot inspected |
 | Real installation | **Not tested** |
 
 The browser suite exercises the built frontend through the real local backend and a loopback-only fake gateway. It covers existing-token connection, simulated physical pairing, optional unsupported resources, on/off/dimming/blind target requests, credential retry, acceptance versus state, stale-state recovery, disconnect, lack of browser credential storage, and keyboard form submission.
+
+DALI regressions cover brightness, tunable white, each RGBW channel, preservation of other fields in partial updates, unknown subtypes, missing/invalid readings, and commands/disconnect while diagnostics are pending. The in-app browser was unavailable; browser verification used the project's Playwright suite.
 
 This is not exhaustive accessibility, load, compatibility, or long-duration testing. Backend concurrency regressions are automated, but real gateway timing, firmware differences, and physical motion still require installation-specific validation.
 
@@ -73,8 +75,7 @@ This is not exhaustive accessibility, load, compatibility, or long-duration test
 
 - Local, unauthenticated, single shared gateway session; no multi-user isolation or persistent token storage.
 - Plain HTTP to a trusted gateway. DNS hostnames are not pinned to an address; prefer a known IP. Do not expose the local server to the Internet or other machines.
-- No TLS gateway discovery, cloud access, Matter bridge, configuration/calibration, stop/tilt buttons, HVAC writes, scene execution, or color controls.
-- UI polling uses sequential requests; slow optional resources can delay a refresh.
+- No TLS gateway discovery, cloud access, Matter bridge, full device/DALI group configuration, calibration, stop/tilt buttons, HVAC writes, or scene execution.
 - Cancelling pairing cannot undo an account the gateway has already created, and disconnect cannot undo a command already sent.
 - One tab is recommended because server credentials/session are shared across tabs.
 

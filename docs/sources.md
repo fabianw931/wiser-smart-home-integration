@@ -23,6 +23,7 @@ status: public-source-research
 | [Official API documentation index](https://feller-ag.github.io/wiser-api/) | Published versioned documentation |
 | [Official API repository](https://github.com/Feller-AG/wiser-api) | Gateway generations, API compatibility statement, article numbers, community projects |
 | [OpenAPI 6.0.47](https://github.com/Feller-AG/wiser-api/blob/main/docs/6.0.47/ugateway_openapi_domain_public.yaml) | Exact REST resource and operation names used in these notes |
+| [OpenAPI 6.0.47 DALI load subtype schema](https://github.com/Feller-AG/wiser-api/blob/main/docs/6.0.47/ugateway_openapi_domain_public.yaml#L885) | DALI subtype and target field ranges used by the dashboard |
 | [Official tutorial](https://github.com/Feller-AG/wiser-tutorial) | Local API workflow |
 | [Authentication tutorial](https://github.com/Feller-AG/wiser-tutorial/blob/main/doc/authentication.md) | Physical pairing, 30-second window, Bearer token |
 | [Loads tutorial](https://github.com/Feller-AG/wiser-tutorial/blob/main/doc/api_loads.md) | Basic load types, states, target-state control |
@@ -49,7 +50,8 @@ status: public-source-research
 | Which gateway generation and firmware are installed? | Inspect article number and `GET /api/info` |
 | Which loads, sensors, and HVAC groups actually exist? | Read documented resource collections with a paired account |
 | Are names, rooms, and scenes account-specific? | Compare claimed account behavior; review account clone/sync documentation before changing anything |
-| How are DALI color and tunable-white capabilities represented? | Inspect the matching firmware schema and real redacted load records |
+| How do DALI color and tunable-white targets behave on the installed gateway? | Validate the documented API units and fields against real redacted records and hardware; `ct` is not confirmed Kelvin |
+| How is full DALI device/group configuration represented? | Inspect matching firmware configuration schemas; dashboard configuration support is not implemented |
 | What are the correct cover position/tilt conversions? | Check schema limits and perform safe physical tests |
 | Which HVAC modes and target fields are supported? | Review group states/configuration and matching firmware schemas |
 | How are weather measurements associated with sensor resources? | Inspect sensor records and weather-group bindings |

@@ -21,12 +21,22 @@ export const test = base.extend({
       { id: 3, type: 'motor', name: 'Office blind', device: 'fake-3', channel: 0, unused: false },
       { id: 4, type: 'unknown', name: 'Unknown device', device: 'fake-4', channel: 0, unused: false },
       { id: 5, type: 'dim', name: 'Unused channel', device: 'fake-5', channel: 0, unused: true },
+      { id: 6, type: 'dali', sub_type: '', name: 'DALI spots', device: 'fake-6', channel: 0 },
+      { id: 7, type: 'dali', sub_type: 'tw', name: 'DALI white', device: 'fake-7', channel: 0 },
+      { id: 8, type: 'dali', sub_type: 'rgb', name: 'DALI color', device: 'fake-8', channel: 0 },
+      { id: 9, type: 'dali', sub_type: 'future', name: 'Unknown DALI', device: 'fake-9', channel: 0 },
+      { id: 10, type: 'dali', name: 'Missing DALI state', device: 'fake-10', channel: 0 },
     ];
     const states = new Map([
       [1, { bri: 0 }], [2, { bri: 2500 }], [3, { level: 4000, moving: 'stop' }],
+      [6, { bri: 5000 }], [7, { bri: 4000, ct: 3000 }],
+      [8, { bri: 6000, red: 10, green: 20, blue: 30, white: 40 }], [9, { bri: 5000 }],
     ]);
     const control = {
       calls: [],
+      states,
+      holdDiagnostics: false,
+      releaseDiagnostics: () => {},
       failStates: false,
       applyTargets: true,
       failAfterTarget: false,
@@ -58,11 +68,14 @@ export const test = base.extend({
       }
       const target = /^\/api\/loads\/(\d+)\/target_state$/.exec(req.url);
       if (req.method === 'PUT' && target) {
-        if (control.applyTargets) states.set(Number(target[1]), payload);
+        if (control.applyTargets) states.set(Number(target[1]), { ...states.get(Number(target[1])), ...payload });
         if (control.failAfterTarget) control.failStates = true;
         return success({ id: Number(target[1]), target_state: payload });
       }
-      if (req.url === '/api/rooms') return success([{ id: 1, name: 'Hall' }]);
+      if (req.url === '/api/rooms') {
+        if (control.holdDiagnostics) await new Promise(resolve => { control.releaseDiagnostics = resolve; });
+        return success([{ id: 1, name: 'Hall' }]);
+      }
       if (['/api/devices', '/api/hvacgroups', '/api/hvacgroups/state'].includes(req.url)) return success([]);
       return reply(404, { status: 'error', message: 'Unsupported fixture resource' });
     });
