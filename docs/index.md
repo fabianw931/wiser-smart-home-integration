@@ -36,7 +36,7 @@ Read [API overview](api-overview.md), then [Getting started](getting-started.md)
 
 ### Try the local proof of concept
 
-See the [dashboard architecture, use, scope, and hardware-validation checklist](dashboard.md).
+See the [dashboard architecture, use, scope, and hardware-validation checklist](dashboard.md), then the [personal mappings guide](local-mappings.md). The [static UI concepts](ui-concepts.html) show the visual directions.
 
 ### Continue development
 

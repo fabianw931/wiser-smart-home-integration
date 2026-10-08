@@ -16,7 +16,7 @@ const close = server => new Promise(resolve => {
 export const test = base.extend({
   gateway: async ({}, use) => {
     const loads = [
-      { id: 1, type: 'onoff', name: 'Hall light', device: 'fake-1', channel: 0, unused: false },
+      { id: 1, type: 'onoff', name: 'Hall light', room: 1, device: 'fake-1', channel: 0, unused: false },
       { id: 2, type: 'dim', name: 'Desk light', device: 'fake-2', channel: 0, unused: false },
       { id: 3, type: 'motor', name: 'Office blind', device: 'fake-3', channel: 0, unused: false },
       { id: 4, type: 'unknown', name: 'Unknown device', device: 'fake-4', channel: 0, unused: false },
@@ -35,6 +35,7 @@ export const test = base.extend({
     const control = {
       calls: [],
       states,
+      loads,
       holdDiagnostics: false,
       releaseDiagnostics: () => {},
       failStates: false,
@@ -62,6 +63,13 @@ export const test = base.extend({
       }
       if (req.url === '/api/info') return success({ name: 'Browser fixture gateway' });
       if (req.url === '/api/loads') return success(loads);
+      const loadMetadata = /^\/api\/loads\/(\d+)$/.exec(req.url);
+      if (loadMetadata) {
+        const load = loads.find(item => item.id === Number(loadMetadata[1]));
+        if (!load) return reply(404, { status: 'error' });
+        if (req.method === 'PATCH') Object.assign(load, payload);
+        return success({ ...load, state: states.get(load.id) });
+      }
       if (req.url === '/api/loads/state') {
         if (control.failStates) return reply(503, { status: 'error' });
         return success([...states].map(([id, state]) => ({ id, state })));
@@ -74,13 +82,13 @@ export const test = base.extend({
       }
       if (req.url === '/api/rooms') {
         if (control.holdDiagnostics) await new Promise(resolve => { control.releaseDiagnostics = resolve; });
-        return success([{ id: 1, name: 'Hall' }]);
+        return success([{ id: 1, name: 'Hall' }, { id: 2, name: 'Living room' }]);
       }
       if (['/api/devices', '/api/hvacgroups', '/api/hvacgroups/state'].includes(req.url)) return success([]);
       return reply(404, { status: 'error', message: 'Unsupported fixture resource' });
     });
     const port = await listen(fake);
-    const app = createApp({ gatewayPort: port, timeout: 1000 });
+    const app = createApp({ gatewayPort: port, timeout: 10000 });
     try {
       const appPort = await listen(app);
       await use({ ...control, control, url: `http://127.0.0.1:${appPort}` });

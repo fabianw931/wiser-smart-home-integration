@@ -159,7 +159,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       if (!path.startsWith('/api/')) throw new AppError(404, 'Not found.');
       // Custom header prevents form submissions and cross-origin simple requests.
       if (req.headers['x-wiser-client'] !== 'local-poc') throw new AppError(403, 'Local app header required.');
-      if (req.method === 'GET' && path === '/api/session') return reply(200, { connected: !!session, host: session?.host || null, connecting });
+      if (req.method === 'GET' && path === '/api/session') return reply(200, { connected: !!session, host: session?.host || null, connecting, draftScope: session?.draftScope || null });
       if (req.method === 'POST' && path === '/api/disconnect') {
         reset();
         return reply(200, { connected: false });
@@ -197,12 +197,18 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
           }
           const info = await gateway(host, token, 'info');
           if (generation !== current || req.aborted || res.destroyed) throw new AppError(409, 'Connection cancelled.');
-          session = { host, token, loads: new Map() };
-          return reply(200, { connected: true, host, info: sanitize(info, token) });
+          session = { host, token, loads: new Map(), draftScope: randomUUID() };
+          return reply(200, { connected: true, host, info: sanitize(info, token), draftScope: session.draftScope });
         } finally { if (generation === current) connecting = false; }
       }
+      if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
+        || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path))
+        && req.headers['x-wiser-intent'] !== 'live') throw new AppError(403, 'Explicit live intent required.');
       if (!session) throw new AppError(409, 'Connect to a gateway first.');
       const active = session;
+      if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
+        || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path))
+        && req.headers['x-wiser-scope'] !== active.draftScope) throw new AppError(409, 'Connection changed.');
       const resource = path.slice('/api/read/'.length);
       if (req.method === 'GET' && path.startsWith('/api/read/') && READS.has(resource)) {
         const data = await gateway(active.host, active.token, resource);
@@ -222,6 +228,50 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         if (session !== active) throw new AppError(409, 'Connection changed.');
         validateTarget(active.loads.get(match[1]), value);
         await gateway(active.host, active.token, `loads/${match[1]}/target_state`, 'PUT', value);
+        return reply(200, { accepted: true });
+      }
+      const config = /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.exec(path);
+      if (req.method === 'PATCH' && config) {
+        const input = await body(req);
+        const checkSession = () => {
+          if (session !== active) throw new AppError(409, 'Connection changed.');
+        };
+        checkSession();
+        const discovered = active.loads.get(config[1]);
+        if (!discovered) invalid('Select a discovered load.');
+        keys(input, ['changes', 'expected']);
+        keys(input.changes, ['name', 'room']);
+        const fields = Object.keys(input.changes);
+        if (!fields.length) invalid('Supply at least one configuration field.');
+        keys(input.expected, fields);
+        if (Object.keys(input.expected).length !== fields.length) invalid('Expected values must match changed fields.');
+        const changes = { ...input.changes };
+        for (const field of fields) {
+          if (field === 'name') {
+            if (typeof changes.name !== 'string' || !changes.name.trim() || changes.name.trim().length > 100) invalid('Name must contain 1 to 100 characters.');
+            changes.name = changes.name.trim();
+            if (input.expected.name !== null && typeof input.expected.name !== 'string') invalid('Expected name must be a string or null.');
+          } else {
+            if (!Number.isSafeInteger(changes.room) || changes.room < 0) invalid('Room must be a nonnegative integer.');
+            if (input.expected.room !== null && (!Number.isSafeInteger(input.expected.room) || input.expected.room < 0)) invalid('Expected room must be a nonnegative integer or null.');
+          }
+        }
+        const current = await gateway(active.host, active.token, `loads/${config[1]}`);
+        checkSession();
+        if (!object(current) || current.id !== Number(config[1])) throw new AppError(502, 'Gateway returned an invalid load.');
+        if (['device', 'channel', 'type', 'sub_type'].some(field => (current[field] ?? null) !== (discovered[field] ?? null))) throw new AppError(409, 'Load identity changed; refresh before applying.');
+        // Best-effort optimistic preflight: the gateway does not offer atomic conditional PATCH.
+        if (fields.some(field => (current[field] ?? null) !== input.expected[field])) throw new AppError(409, 'Load configuration changed; refresh before applying.');
+        if (fields.includes('room')) {
+          const rooms = await gateway(active.host, active.token, 'rooms');
+          checkSession();
+          if (!Array.isArray(rooms) || rooms.some(room => !object(room) || !Number.isSafeInteger(room.id) || room.id < 0)) throw new AppError(502, 'Gateway returned an invalid room list.');
+          if (!rooms.some(room => room.id === changes.room)) invalid('Select an existing room.');
+        }
+        checkSession();
+        await gateway(active.host, active.token, `loads/${config[1]}`, 'PATCH', changes);
+        checkSession();
+        active.loads.set(config[1], { ...current, ...changes });
         return reply(200, { accepted: true });
       }
       throw new AppError(404, 'Endpoint not allowed.');

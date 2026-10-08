@@ -14,9 +14,10 @@
   }
 </script>
 
-<section class="card bg-base-100 shadow-sm border border-base-300" aria-labelledby="connection-heading">
+<section class="card gateway-card bg-base-100 shadow-sm border border-base-300" aria-labelledby="connection-heading">
   <div class="card-body">
     <h2 id="connection-heading" class="card-title">Gateway connection</h2>
+    <p class="connection-intro">Connect to your Wiser gateway to read your home’s rooms and reported device states.</p>
     <form onsubmit={submit}>
       <fieldset disabled={disabled} class="space-y-4">
         <label class="fieldset">
@@ -41,7 +42,7 @@
           </label>
           <button class="btn btn-primary" type="submit">Connect</button>
         {:else}
-          <p class="text-sm">Have physical access to the gateway. After starting, press a flashing gateway button within approximately 30 seconds. A unique client account will be created.</p>
+          <p class="pairing-note text-sm">Have physical access to the gateway. After starting, press a flashing gateway button within approximately 30 seconds. Pairing creates a real gateway account.</p>
           <button class="btn btn-primary" type="submit">Start pairing</button>
         {/if}
       </fieldset>

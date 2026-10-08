@@ -17,6 +17,7 @@ async function close(server) {
 async function fixture(t, { onGateway, ...options } = {}) {
   const calls = [];
   let mode = '';
+  let draftScope;
   const gateway = http.createServer(async (req, res) => {
     let raw = '';
     for await (const chunk of req) raw += chunk;
@@ -39,6 +40,8 @@ async function fixture(t, { onGateway, ...options } = {}) {
       { id: 4, type: 'dim', unused: true },
     ];
     if (req.url === '/api/loads/state') data = [{ id: 1, state: { bri: 10000 } }];
+    if (/^\/api\/loads\/[1-4]$/.test(req.url)) data = { id: Number(req.url.split('/').at(-1)), name: 'Light', type: 'onoff', room: 0 };
+    if (req.url === '/api/rooms') data = [{ id: 0, name: 'Ground floor' }, { id: 2, name: 'Office' }];
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ status: 'success', data }));
   });
@@ -47,15 +50,20 @@ async function fixture(t, { onGateway, ...options } = {}) {
   const appPort = await listen(app);
   t.after(async () => { await close(app); await close(gateway); });
   async function request(path, method = 'GET', payload, headers = {}) {
+    const requestHeaders = { 'X-Wiser-Client': 'local-poc', ...(['PUT', 'PATCH'].includes(method) ? { 'X-Wiser-Intent': 'live', 'X-Wiser-Scope': draftScope } : {}), ...(payload ? { 'Content-Type': 'application/json' } : {}), ...headers };
+    // Explicit undefined removes the compatibility default to exercise browser preview requests.
+    for (const key of Object.keys(requestHeaders)) if (requestHeaders[key] === undefined) delete requestHeaders[key];
     const res = await fetch(`http://127.0.0.1:${appPort}${path}`, {
       method,
-      headers: { 'X-Wiser-Client': 'local-poc', ...(payload ? { 'Content-Type': 'application/json' } : {}), ...headers },
+      headers: requestHeaders,
       body: payload ? JSON.stringify(payload) : undefined,
     });
     return { status: res.status, body: await res.json(), headers: res.headers };
   }
   async function connect(pair = false) {
-    return request('/api/connect', 'POST', { host: '127.0.0.1', pair, ...(!pair ? { token: 'fake-secret' } : {}) });
+    const result = await request('/api/connect', 'POST', { host: '127.0.0.1', pair, ...(!pair ? { token: 'fake-secret' } : {}) });
+    if (result.status === 200) draftScope = result.body.draftScope;
+    return result;
   }
   return { calls, request, connect, appPort, setMode: value => { mode = value; } };
 }
@@ -178,7 +186,7 @@ test('pairing uses unique usernames and never returns secrets', async t => {
   const claims = f.calls.filter(call => call.path === '/api/account/claim');
   assert.notEqual(claims[0].payload.user, claims[1].payload.user);
   const session = await f.request('/api/session');
-  assert.deepEqual(session.body, { connected: true, host: '127.0.0.1', connecting: false });
+  assert.deepEqual(session.body, { connected: true, host: '127.0.0.1', connecting: false, draftScope: session.body.draftScope });
   assert.equal(session.headers.get('cache-control'), 'no-store');
 });
 
@@ -243,14 +251,15 @@ test('concurrent connects reject the second attempt, and disconnect permits a re
   try {
     const first = f.connect();
     await firstInfo;
-    assert.deepEqual((await f.request('/api/session')).body, { connected: false, host: null, connecting: true });
+    assert.deepEqual((await f.request('/api/session')).body, { connected: false, host: null, connecting: true, draftScope: null });
     assert.equal((await f.connect()).status, 409);
     assert.equal(infoCount, 1, 'rejected connect must not call the gateway');
     assert.equal((await f.request('/api/disconnect', 'POST')).status, 200);
-    assert.equal((await f.connect()).status, 200);
+    const replacement = await f.connect();
+    assert.equal(replacement.status, 200);
     release();
     assert.equal((await first).status, 502);
-    assert.deepEqual((await f.request('/api/session')).body, { connected: true, host: '127.0.0.1', connecting: false });
+    assert.deepEqual((await f.request('/api/session')).body, { connected: true, host: '127.0.0.1', connecting: false, draftScope: replacement.body.draftScope });
   } finally {
     release();
   }
@@ -439,4 +448,166 @@ test('normal response closure preserves an established connection', async t => {
   assert.equal((await f.connect()).status, 200);
   assert.equal((await f.request('/api/session')).body.connected, true);
   assert.equal((await f.request('/api/read/loads')).status, 200);
+});
+
+test('draft scope stays stable within a session and changes on every connection', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.request('/api/session')).body.draftScope, null);
+  const first = await f.connect();
+  assert.match(first.body.draftScope, /^[a-f0-9-]{36}$/);
+  assert.equal((await f.request('/api/session')).body.draftScope, first.body.draftScope);
+  await f.request('/api/read/loads');
+  assert.equal((await f.request('/api/session')).body.draftScope, first.body.draftScope);
+  const second = await f.connect();
+  assert.notEqual(second.body.draftScope, first.body.draftScope);
+  assert.equal((await f.request('/api/session')).body.draftScope, second.body.draftScope);
+  await f.request('/api/disconnect', 'POST');
+  assert.equal((await f.request('/api/session')).body.draftScope, null);
+});
+
+test('writes require explicit live intent before any gateway request', async t => {
+  const f = await fixture(t);
+  await f.connect();
+  await f.request('/api/read/loads');
+  const before = f.calls.length;
+  for (const intent of [undefined, '', 'preview', 'LIVE']) {
+    for (const [path, method, payload] of [
+      ['/api/loads/1/target_state', 'PUT', { bri: 0 }],
+      ['/api/loads/1/config', 'PATCH', { changes: { name: 'New' }, expected: { name: 'Light' } }],
+    ]) assert.equal((await f.request(path, method, payload, { 'X-Wiser-Intent': intent })).status, 403);
+  }
+  assert.equal(f.calls.length, before);
+});
+
+test('writes from a prior tab session cannot act on a replacement connection', async t => {
+  const f = await fixture(t);
+  const old = await f.connect();
+  await f.connect();
+  await f.request('/api/read/loads');
+  const before = f.calls.length;
+  for (const scope of [undefined, old.body.draftScope, 'invalid']) {
+    for (const [path, method, payload] of [
+      ['/api/loads/1/target_state', 'PUT', { bri: 0 }],
+      ['/api/loads/1/config', 'PATCH', { changes: { name: 'New' }, expected: { name: 'Light' } }],
+    ]) assert.equal((await f.request(path, method, payload, { 'X-Wiser-Scope': scope })).status, 409);
+  }
+  assert.equal(f.calls.length, before);
+});
+
+test('configuration refuses a load whose discovered physical identity changed', async t => {
+  for (const field of ['device', 'channel', 'type', 'sub_type']) {
+    const f = await fixture(t, { onGateway(req, res) {
+      if (req.url !== '/api/loads/1') return false;
+      res.end(JSON.stringify({ status: 'success', data: { id: 1, name: 'Light', type: 'onoff', [field]: field === 'type' ? 'dim' : 42 } }));
+      return true;
+    } });
+    await f.connect();
+    await f.request('/api/read/loads');
+    assert.equal((await f.request('/api/loads/1/config', 'PATCH', { changes: { name: 'New' }, expected: { name: 'Light' } })).status, 409, field);
+    assert.equal(f.calls.some(call => call.method === 'PATCH'), false);
+  }
+});
+
+test('concurrent discovery cannot replace the identity captured for configuration preflight', async t => {
+  let arrived;
+  const requested = new Promise(resolve => { arrived = resolve; });
+  let release;
+  const hold = new Promise(resolve => { release = resolve; });
+  let refreshed = false;
+  const f = await fixture(t, { onGateway: async (req, res) => {
+    if (req.url === '/api/loads' && refreshed) {
+      res.end(JSON.stringify({ status: 'success', data: [{ id: 1, name: 'Light', type: 'dim' }] }));
+      return true;
+    }
+    if (req.url !== '/api/loads/1') return false;
+    arrived();
+    await hold;
+    res.end(JSON.stringify({ status: 'success', data: { id: 1, name: 'Light', type: 'dim' } }));
+    return true;
+  } });
+  try {
+    await f.connect();
+    await f.request('/api/read/loads');
+    const applying = f.request('/api/loads/1/config', 'PATCH', { changes: { name: 'New' }, expected: { name: 'Light' } });
+    await requested;
+    refreshed = true;
+    assert.equal((await f.request('/api/read/loads')).status, 200);
+    release();
+    assert.equal((await applying).status, 409);
+    assert.equal(f.calls.some(call => call.method === 'PATCH'), false);
+  } finally { release(); }
+});
+
+test('configuration forwards only changed metadata with fresh optimistic preflight', async t => {
+  const f = await fixture(t);
+  await f.connect();
+  const input = { changes: { name: '  New light  ' }, expected: { name: 'Light' } };
+  assert.equal((await f.request('/api/loads/1/config', 'PATCH', input)).status, 400);
+  await f.request('/api/read/loads');
+  assert.equal((await f.request('/api/loads/1/config', 'PATCH', input)).status, 200);
+  assert.deepEqual(f.calls.at(-1), { path: '/api/loads/1', method: 'PATCH', token: 'Bearer fake-secret', payload: { name: 'New light' } });
+  assert.equal((await f.request('/api/loads/1/config', 'PATCH', { changes: { room: 2 }, expected: { room: 0 } })).status, 200);
+  assert.deepEqual(f.calls.slice(-3).map(call => [call.path, call.method]), [['/api/loads/1', 'GET'], ['/api/rooms', 'GET'], ['/api/loads/1', 'PATCH']]);
+  assert.deepEqual(f.calls.at(-1).payload, { room: 2 });
+  const patches = f.calls.filter(call => call.method === 'PATCH').length;
+  assert.equal((await f.request('/api/loads/1/config', 'PATCH', { changes: { name: 'Other' }, expected: { name: 'Stale' } })).status, 409);
+  assert.equal((await f.request('/api/loads/1/config', 'PATCH', { changes: { room: 99 }, expected: { room: 0 } })).status, 400);
+  assert.equal(f.calls.filter(call => call.method === 'PATCH').length, patches);
+});
+
+test('configuration rejects malformed and read-only changes without upstream requests', async t => {
+  const f = await fixture(t);
+  await f.connect();
+  await f.request('/api/read/loads');
+  const before = f.calls.length;
+  for (const input of [
+    {}, { changes: {}, expected: {} }, { changes: { type: 'dim' }, expected: { type: 'onoff' } },
+    { changes: { name: 'New' }, expected: {} },
+    { changes: { name: 'New' }, expected: { name: 'Light', room: 0 } },
+    ...['', '   ', 'x'.repeat(101), 1, null].map(name => ({ changes: { name }, expected: { name: 'Light' } })),
+    ...[-1, 1.5, '2', null, Number.MAX_SAFE_INTEGER + 1].map(room => ({ changes: { room }, expected: { room: 0 } })),
+    { changes: { name: 'New' }, expected: { name: 42 } },
+    { changes: { room: 2 }, expected: { room: '0' } },
+    { changes: { name: 'New' }, expected: { name: 'Light' }, extra: true },
+  ]) assert.equal((await f.request('/api/loads/1/config', 'PATCH', input)).status, 400, JSON.stringify(input));
+  assert.equal(f.calls.length, before);
+});
+
+test('configuration accepts null expected metadata for absent fields', async t => {
+  const f = await fixture(t, { onGateway(req, res) {
+    if (req.url !== '/api/loads/1') return false;
+    res.end(JSON.stringify({ status: 'success', data: { id: 1, type: 'onoff' } }));
+    return true;
+  } });
+  await f.connect();
+  await f.request('/api/read/loads');
+  assert.equal((await f.request('/api/loads/1/config', 'PATCH', { changes: { name: 'Named', room: 2 }, expected: { name: null, room: null } })).status, 200);
+  assert.deepEqual(f.calls.at(-1).payload, { name: 'Named', room: 2 });
+});
+
+test('disconnect during configuration preflight prevents PATCH after reconnect', async t => {
+  for (const heldPath of ['/api/loads/1', '/api/rooms']) {
+    let arrived;
+    const requested = new Promise(resolve => { arrived = resolve; });
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const f = await fixture(t, { onGateway: async (req, res) => {
+      if (req.url !== heldPath) return false;
+      arrived();
+      await held;
+      res.end(JSON.stringify({ status: 'success', data: heldPath === '/api/rooms' ? [{ id: 2 }] : { id: 1, name: 'Light', room: 0, type: 'onoff' } }));
+      return true;
+    } });
+    try {
+      await f.connect();
+      await f.request('/api/read/loads');
+      const applying = f.request('/api/loads/1/config', 'PATCH', { changes: { room: 2 }, expected: { room: 0 } });
+      await requested;
+      await f.request('/api/disconnect', 'POST');
+      await f.connect();
+      release();
+      assert.notEqual((await applying).status, 200);
+      assert.equal(f.calls.some(call => call.method === 'PATCH'), false);
+    } finally { release(); }
+  }
 });

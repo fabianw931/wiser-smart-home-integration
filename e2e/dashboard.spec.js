@@ -12,14 +12,14 @@ test('token connection discovers and controls lights and blinds, then forgets cr
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await connect(page, gateway);
-  await expect(page.getByLabel('Gateway token')).toHaveValue('');
+  await expect(page.getByLabel('Gateway token')).toHaveCount(0);
   const hall = page.getByRole('article', { name: 'Hall light' });
   const desk = page.getByRole('article', { name: 'Desk light' });
   const blind = page.getByRole('article', { name: 'Office blind' });
   await expect(hall.getByTestId('reported-state')).toHaveText('Reported: Off');
   await hall.getByRole('button', { name: 'On', exact: true }).click();
   await expect(hall.getByTestId('reported-state')).toHaveText('Reported: On');
-  await desk.getByLabel(/Brightness target/).fill('3750');
+  await desk.getByLabel(/Brightness target/).fill('37.5');
   await desk.getByRole('button', { name: 'Set target' }).click();
   await expect(desk.getByTestId('reported-state')).toHaveText('Reported: 37.5% brightness');
   await blind.getByRole('button', { name: 'Open', exact: true }).click();
@@ -29,6 +29,7 @@ test('token connection discovers and controls lights and blinds, then forgets cr
   ]);
   await expect(page.getByRole('article', { name: 'Unknown device' })).toContainText('Read-only');
   await expect(page.getByRole('article', { name: 'Unused channel' })).toContainText('unused channel');
+  await page.getByRole('button', { name: 'Diagnostics', exact: true }).click();
   await expect(page.locator('summary').filter({ hasText: 'sensors' })).toContainText('Unsupported');
   expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
   await page.getByRole('button', { name: 'Disconnect & forget credentials' }).click();
@@ -58,7 +59,7 @@ test('DALI controls send subtype-specific partial targets and preserve other cha
   const spots = page.getByRole('article', { name: 'DALI spots', exact: true });
   const white = page.getByRole('article', { name: 'DALI white', exact: true });
   const color = page.getByRole('article', { name: 'DALI color', exact: true });
-  await spots.getByLabel(/Brightness target/).fill('2750');
+  await spots.getByLabel(/Brightness target/).fill('27.5');
   await spots.getByRole('button', { name: 'Set target', exact: true }).click();
   await expect(spots.getByTestId('reported-state')).toHaveText('Reported: 27.5% brightness');
   await white.getByLabel(/Color temperature.*target/).fill('4200');
@@ -155,4 +156,116 @@ test('narrow-screen form supports keyboard submission without horizontal overflo
   await expect(page.getByRole('button', { name: 'Refresh now' })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('dashboard-mobile.png'), fullPage: true });
+});
+
+
+async function savePersonalMapping(page, gateway) {
+  await connect(page, gateway);
+  await page.getByRole('button', { name: 'Configuration', exact: true }).click();
+  await page.getByLabel('Choose a load to configure').selectOption('1');
+  await page.getByLabel('Personal display name').fill('Entrance pendant');
+  await page.getByLabel('Personal room', { exact: true }).fill('My studio');
+  await page.getByLabel('Personal notes').fill('Left of the door');
+  await page.getByRole('button', { name: 'Save local mapping' }).click();
+  await expect(page.getByRole('article', { name: 'Mapping for Entrance pendant' })).toContainText('My studio');
+}
+
+test('personal mappings persist across reload and reconnect while controls remain real', async ({ page, gateway }, testInfo) => {
+  await savePersonalMapping(page, gateway);
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('configuration-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('configuration-mobile.png'), fullPage: true });
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Refresh now' })).toBeEnabled();
+  const mapped = page.getByRole('article', { name: 'Entrance pendant', exact: true });
+  await expect(mapped).toBeVisible();
+  await page.getByLabel('Filter by room').selectOption('My studio');
+  await expect(page.getByRole('article')).toHaveCount(1);
+  await mapped.getByRole('button', { name: 'On', exact: true }).click();
+  await expect(mapped.getByTestId('reported-state')).toHaveText('Reported: On');
+  expect(gateway.control.calls.filter(call => call.method !== 'GET').map(call => [call.path, call.payload])).toEqual([
+    ['/api/loads/1/target_state', { bri: 10000 }],
+  ]);
+  await page.getByRole('button', { name: 'Disconnect & forget credentials' }).click();
+  await connect(page, gateway);
+  await expect(mapped).toBeVisible();
+  expect(gateway.control.loads[0].name).toBe('Hall light');
+  expect(gateway.control.loads[0].room).toBe(1);
+  await page.getByRole('button', { name: 'Configuration', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove local mapping' }).click();
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(page.getByRole('article', { name: 'Hall light', exact: true })).toBeVisible();
+});
+
+test('gateway metadata is a separate reviewed action and keeps personal mapping', async ({ page, gateway }) => {
+  await savePersonalMapping(page, gateway);
+  await page.getByText('Change gateway metadata…', { exact: true }).click();
+  await page.getByLabel('Gateway display name').fill('Gateway entrance');
+  await page.getByRole('combobox', { name: 'Gateway room', exact: true }).selectOption('2');
+  await page.getByRole('button', { name: 'Review gateway change' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Gateway entrance');
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+  await page.getByRole('button', { name: 'Review gateway change' }).click();
+  await page.getByRole('button', { name: 'Apply this change to gateway' }).click();
+  await expect(page.getByRole('button', { name: 'Refresh now' })).toBeEnabled();
+  expect(gateway.control.calls.filter(call => call.method === 'PATCH').map(call => call.payload)).toEqual([{ name: 'Gateway entrance', room: 2 }]);
+  await expect(page.getByRole('article', { name: 'Mapping for Entrance pendant' })).toBeVisible();
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(page.getByRole('article', { name: 'Entrance pendant', exact: true })).toBeVisible();
+});
+
+test('installer changes reject pending gateway metadata without affecting personal mapping', async ({ page, gateway }) => {
+  await savePersonalMapping(page, gateway);
+  await page.getByText('Change gateway metadata…', { exact: true }).click();
+  await page.getByLabel('Gateway display name').fill('Requested name');
+  await page.getByRole('button', { name: 'Review gateway change' }).click();
+  gateway.control.loads[0].name = 'Installer update';
+  await page.getByRole('button', { name: 'Apply this change to gateway' }).click();
+  await expect(page.getByRole('alert')).toContainText(/changed|conflict/i);
+  expect(gateway.control.calls.filter(call => call.method === 'PATCH')).toEqual([]);
+  await page.getByRole('button', { name: 'Refresh now' }).click();
+  await page.getByRole('button', { name: 'Home', exact: true }).click();
+  await expect(page.getByRole('article', { name: 'Entrance pendant', exact: true })).toBeVisible();
+});
+
+test('mapping export and import stay local and never include credentials', async ({ page, gateway }) => {
+  await savePersonalMapping(page, gateway);
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export mappings' }).click();
+  const download = await downloaded;
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString('utf8');
+  expect(text).not.toContain(gateway.token);
+  const data = JSON.parse(text);
+  expect(data.mappings['1'].name).toBe('Entrance pendant');
+  await page.getByRole('button', { name: 'Remove local mapping' }).click();
+  await page.getByLabel('Import mappings file').setInputFiles({ name: 'mappings.json', mimeType: 'application/json', buffer: Buffer.from(text) });
+  await expect(page.getByRole('article', { name: 'Mapping for Entrance pendant' })).toBeVisible();
+  await page.getByLabel('Import mappings file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...data, gateway: 'other-gateway' })) });
+  await expect(page.getByRole('alert')).toContainText('for this gateway');
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+});
+
+test('sample home is offline and supports room filters and simulated controls', async ({ page, gateway }, testInfo) => {
+  await page.goto(gateway.url);
+  await page.getByRole('button', { name: 'Explore sample home' }).click();
+  await page.getByLabel('Filter by room').selectOption('Kitchen');
+  await expect(page.getByRole('article')).toHaveCount(1);
+  const counter = page.getByRole('article', { name: 'Counter lighting' });
+  await counter.getByRole('button', { name: 'Off', exact: true }).click();
+  await expect(counter.getByTestId('reported-state')).toHaveText('Reported: 0% brightness');
+  await page.getByLabel('Filter by room').selectOption({ label: 'All rooms' });
+  await page.getByLabel('Search loads').fill('Pendant');
+  await expect(page.getByRole('article')).toHaveCount(1);
+  await page.getByLabel('Search loads').fill('');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: testInfo.outputPath('home-desktop.png'), fullPage: true });
+  expect(gateway.control.calls).toEqual([]);
 });

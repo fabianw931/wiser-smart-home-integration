@@ -4,6 +4,9 @@
   import ConnectionForm from './components/ConnectionForm.svelte';
   import LoadCard from './components/LoadCard.svelte';
   import ResourcePanel from './components/ResourcePanel.svelte';
+  import ConfigurationPanel from './components/ConfigurationPanel.svelte';
+  import { sampleHome } from './demo.js';
+  import { makeMapping, mappingMatches, readMappings, saveMappings, exportMappings, importMappings } from './mappings.js';
 
   const api = createApi();
   const resourceNames = ['info', 'rooms', 'devices', 'sensors', 'hvacgroups', 'hvacgroups/state'];
@@ -22,10 +25,82 @@
   let diagnosticsBusy = false;
   let epoch = 0;
   let timer;
+  let page = 'Home';
+  let demo = false;
+  let search = '';
+  let roomFilter = '';
+  let mappings = {};
+  let gatewayKey = '';
+  let storageNotice = '';
+  let reviewDialog;
+  let reviewId = '';
+  let reviewChange = null;
+  $: rooms = demo ? resources.rooms?.data || [] : Array.isArray(resources.rooms?.data) ? resources.rooms.data : [];
+  $: displayedLoads = loads.map(load => {
+    const local = mappingMatches(load, mappings[load.id]) ? mappings[load.id] : null;
+    return { ...load, name: local?.name ?? load.name, personalRoom: local?.room ?? rooms.find(room => room.id === load.room)?.name ?? '', personalNotes: local?.notes ?? '' };
+  });
+  $: roomLabels = [...new Set(displayedLoads.map(load => load.personalRoom).filter(Boolean))].sort();
+  $: filteredLoads = displayedLoads.filter(load => (roomFilter === '' || (roomFilter === 'unassigned' ? !load.personalRoom : load.personalRoom === roomFilter)) && (load.name || '').toLowerCase().includes(search.toLowerCase()));
+  $: reviewLoad = loads.find(load => String(load.id) === reviewId);
+  $: reviewConflict = reviewChange && (!reviewLoad || Object.entries(reviewChange.expected).some(([field, value]) => (reviewLoad[field] ?? null) !== value));
+  function restoreLocal(key) {
+    gatewayKey = key.toLowerCase();
+    storageNotice = '';
+    try { mappings = readMappings(localStorage, gatewayKey); }
+    catch { mappings = {}; storageNotice = 'Saved mappings could not be read. Export new edits before closing this page.'; }
+  }
+  function persistLocal() {
+    try { saveMappings(localStorage, gatewayKey, mappings); storageNotice = ''; return true; }
+    catch { storageNotice = 'Mappings are currently in memory only. Export them to a file before closing this page.'; return false; }
+  }
+  function saveLocal(load, fields) {
+    mappings = { ...mappings, [load.id]: makeMapping(load, fields) };
+    const saved = persistLocal();
+    commandNotice = saved ? 'Personal mapping saved locally. Gateway configuration is unchanged.' : 'Personal mapping updated in memory. Export it to keep a file backup.';
+  }
+  function removeLocal(id) {
+    const next = { ...mappings }; delete next[id]; mappings = next; persistLocal();
+    commandNotice = 'Local mapping removed. Gateway configuration is unchanged.';
+  }
+  function exportLocal() {
+    const url = URL.createObjectURL(new Blob([exportMappings(gatewayKey, mappings)], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = 'wiser-personal-mappings.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  function importLocal(text) {
+    const imported = importMappings(text, gatewayKey);
+    mappings = { ...imported, ...mappings }; persistLocal();
+    commandNotice = 'Mappings imported locally. Existing entries were kept; nothing was sent to the gateway.';
+  }
+  function review(load, change) {
+    if (demo || busy || !connected) return;
+    reviewId = String(load.id); reviewChange = change; reviewDialog.showModal();
+  }
+  function explore() {
+    clearTimeout(timer); api.cancel(); epoch++;
+    const sample = sampleHome();
+    demo = true; connected = false; busy = false; stale = false; diagnosticsBusy = false;
+    loads = sample.loads; states = sample.states; resources = { rooms: { data: sample.rooms } };
+    restoreLocal('sample-home');
+    error = ''; notice = 'Sample home — simulated equipment. No gateway connected.'; updated = ''; page = 'Home';
+  }
+  function applyConfiguration() {
+    if (demo || !connected || !reviewChange || reviewConflict) return;
+    const id = reviewId, change = reviewChange;
+    reviewDialog.close();
+    return operation(async current => {
+      await api.request('/api/loads/' + id + '/config', 'PATCH', change, true);
+      if (current !== epoch) return;
+      commandNotice = 'Gateway metadata change accepted. Your personal mapping is kept separately.';
+      reviewChange = null;
+      await loadAll(current, false);
+    });
+  }
 
   function schedule() {
     clearTimeout(timer);
-    if (connected) timer = setTimeout(refresh, 30000);
+    if (connected && !demo) timer = setTimeout(refresh, 30000);
   }
   async function operation(action) {
     if (busy) return;
@@ -82,6 +157,7 @@
   }
   function refresh() { return operation(current => loadAll(current)); }
   async function connect(payload) {
+    demo = false;
     try {
       await operation(async current => {
         notice = payload.pair ? 'Pairing — press a flashing gateway button within 30 seconds…' : 'Connecting…';
@@ -90,14 +166,20 @@
         if (current !== epoch) return;
         connected = result.connected;
         host = result.host.replace(/^\[|\]$/g, '');
+        restoreLocal(host);
         await loadAll(current);
       });
     } finally { delete payload.token; }
   }
   function write(load, target) {
+    if (demo) {
+      states = { ...states, [load.id]: { ...states[load.id], ...target } };
+      commandNotice = 'Sample control updated. No gateway connected.';
+      return;
+    }
     return operation(async current => {
       commandNotice = '';
-      await api.request(`/api/loads/${load.id}/target_state`, 'PUT', target);
+      await api.request(`/api/loads/${load.id}/target_state`, 'PUT', target, true);
       if (current !== epoch) return;
       commandNotice = `Target accepted for ${load.name || `Load ${load.id}`}. Check the reported state and physical device; acceptance is not confirmation of movement.`;
       await loadAll(current, false);
@@ -106,6 +188,8 @@
   async function disconnect() {
     if (disconnecting) return;
     disconnecting = true;
+    demo = false; mappings = {}; gatewayKey = ''; storageNotice = ''; search = ''; roomFilter = '';
+    reviewDialog?.close();
     epoch++;
     clearTimeout(timer);
     api.cancel();
@@ -135,6 +219,7 @@
       connected = session.connected;
       if (connected) {
         host = session.host.replace(/^\[|\]$/g, '');
+        restoreLocal(host);
         await loadAll(current);
       } else notice = session.connecting ? 'A connection is pending in another tab; disconnect to cancel it.' : 'Not connected.';
     });
@@ -142,47 +227,45 @@
   onDestroy(() => { epoch++; clearTimeout(timer); api.cancel(); });
 </script>
 
-<main class="max-w-6xl mx-auto p-4 sm:p-8 space-y-6">
-  <header class="space-y-2">
-    <p class="text-sm uppercase tracking-wide text-primary font-semibold">Local control · Proof of concept</p>
-    <h1 class="text-3xl font-bold">Wiser by Feller</h1>
-    <p class="text-base-content/70">Discover your installation, inspect reported states, and control lights and blinds.</p>
-  </header>
-  <div class="alert alert-warning text-sm" role="note">Real equipment, local access only. Use a trusted LAN; gateway HTTP is unencrypted. Do not expose this app's port.</div>
-  {#key epoch}
-    <ConnectionForm bind:host disabled={busy || connected} onconnect={connect} />
-  {/key}
-  <section class="card bg-base-100 border border-base-300 shadow-sm" aria-label="Connection status">
-    <div class="card-body gap-3">
-      <div class="flex flex-wrap items-center gap-3">
-        <span class={`badge ${connected ? 'badge-success' : 'badge-neutral'}`}>{connected ? `Connected to ${host}` : 'Disconnected'}</span>
-        {#if busy}<span class="loading loading-spinner loading-sm" aria-hidden="true"></span>{/if}
-        <p role="status">{notice}</p>
-      </div>
-      {#if error}<p class="text-error" role="alert">{error}</p>{/if}
-      {#if commandNotice}<p class="text-sm" role="status">{commandNotice}</p>{/if}
-      <p class="text-sm">{updated ? `Last successful state update: ${updated}` : 'No reported state snapshot yet.'} {stale && connected ? 'Readings are stale or unavailable.' : ''}</p>
-      <div class="flex flex-wrap gap-2">
-        <button class="btn btn-sm btn-outline" disabled={busy || !connected} onclick={refresh}>Refresh now</button>
-        <button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={disconnect}>Disconnect & forget credentials</button>
-      </div>
-      <p class="text-xs text-base-content/65">Refreshes every 30 seconds after requests finish. Disconnect forgets the local token, not the gateway account.</p>
-    </div>
-  </section>
-  <section aria-labelledby="loads-heading" class="space-y-3">
-    <h2 id="loads-heading" class="text-xl font-semibold">Loads {connected ? `(${loads.length})` : ''}</h2>
-    {#if !connected}<p>Connect to discover your lights and blinds.</p>
-    {:else if !loads.length}<p>No loads reported by this gateway.</p>{/if}
-    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {#each loads as load (load.id)}
-        <LoadCard {load} state={states[load.id]} disabled={busy || !connected} {stale} onwrite={write} />
-      {/each}
-    </div>
-  </section>
-  <section aria-labelledby="resources-heading" class="space-y-3">
-    <h2 id="resources-heading" class="text-xl font-semibold">Resource inspector</h2>
-    <p class="text-sm text-base-content/70">Read-only diagnostics. Availability depends on your firmware and installation.</p>
-    {#if diagnosticsBusy}<p class="text-sm">Updating diagnostics in the background…</p>{/if}
-    {#each resourceNames as name}<ResourcePanel {name} result={resources[name]} />{/each}
-  </section>
-</main>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div><div class="brand">wiser<span class="brand-accent">.</span></div><p class="brand-caption">Your home, connected</p></div>
+    <nav aria-label="Main navigation">{#each ['Home', 'Configuration', 'Diagnostics'] as item}<button class:active={page === item} aria-current={page === item ? 'page' : undefined} onclick={() => page = item}>{item}</button>{/each}</nav>
+    <div class="sidebar-footer">Wiser by Feller<br>Local control workspace<br>{demo ? 'Sample home' : connected ? host : 'No gateway connected'}</div>
+  </aside>
+  <main class="main-content">
+    <header class="topbar"><div><p class="eyebrow">{demo ? 'Sample home' : 'Your home workspace'}</p><h1>{page === 'Home' ? 'Make yourself at home.' : page === 'Configuration' ? 'A home that feels like yours.' : 'Understand your installation.'}</h1><p>{page === 'Home' ? 'Lights, blinds, and the details that make a room.' : page === 'Configuration' ? 'Plan names and room assignments in your browser first.' : 'Reported resources from your gateway, read only.'}</p></div><span class="badge">{demo ? 'Sample home' : connected ? 'Gateway connected' : 'Local workspace'}</span></header>
+    <div class="mode-banner" role="note"><div><strong>{demo ? 'Sample home · no gateway connected' : 'Personal configuration · saved on this laptop'}</strong><p>{demo ? 'Explore the workspace using simulated lights and blinds.' : 'Names, rooms, and notes are local to your dashboard. Light and blind controls operate your devices normally.'}</p></div></div>
+    <section class="status-strip" aria-label="Connection status"><div><p role="status">{notice}</p><p class="muted text-xs">{updated ? `Last successful state update: ${updated}` : demo ? 'Sample values — not gateway readings.' : 'No reported state snapshot yet.'} {stale && connected ? 'Readings are stale or unavailable.' : ''}</p></div><div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-outline" disabled={busy || !connected || demo} onclick={refresh}>Refresh now</button><button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={disconnect}>Disconnect & forget credentials</button></div></section>
+    {#if error}<p class="alert alert-error" role="alert">{error}</p>{/if}
+    {#if commandNotice}<p class="command-notice" role="status">{commandNotice}</p>{/if}
+    {#if storageNotice}<p class="alert alert-warning" role="alert">{storageNotice}</p>{/if}
+    {#if !connected && !demo}
+      <div class="welcome-grid">{#key epoch}<ConnectionForm bind:host disabled={busy} onconnect={connect} />{/key}<section class="card welcome-card"><div class="card-body"><p class="eyebrow">Start with a preview</p><h2 class="section-title">Get to know your home workspace.</h2><p class="muted">Try a sample home without connecting to a gateway. Explore lights, blinds, and personal configuration.</p><button class="btn btn-primary" disabled={busy} onclick={explore}>Explore sample home</button><p class="muted text-xs">Sample values are fictional. No real devices are connected.</p></div></section></div>
+    {/if}
+    {#if connected || demo}
+      <div class="home-stats"><div><strong>{loads.length}</strong><span>Loads</span></div><div><strong>{rooms.length}</strong><span>Rooms</span></div><div><strong>{Object.keys(mappings).length}</strong><span>Personal mappings</span></div></div>
+    {/if}
+    {#if page === 'Home'}
+      <section aria-labelledby="loads-heading"><div class="section-heading"><h2 id="loads-heading" class="section-title">Your lights & blinds</h2><span class="muted text-sm">{demo ? 'Sample installation' : 'Reported installation'}</span></div>
+      {#if connected || demo}<div class="toolbar"><label class="search-label"><span class="sr-only">Search loads</span><input class="input w-full" bind:value={search} placeholder="Search lights or blinds…" /></label><label><span class="sr-only">Filter by room</span><select class="select" bind:value={roomFilter}><option value="">All rooms</option>{#each roomLabels as room}<option value={room}>{room}</option>{/each}<option value="unassigned">Unassigned</option></select></label></div>{/if}
+      {#if !connected && !demo}<p class="muted">Connect to discover your lights and blinds, or explore the sample home.</p>{:else if !filteredLoads.length}<p class="empty-state">{loads.length ? 'No loads match your filters.' : 'No loads reported by this gateway.'}</p>{/if}
+      <div class="load-grid">{#each filteredLoads as load (load.id)}<div class="load-room"><p class="room-caption">{load.personalRoom || 'Unassigned'}{#if mappings[load.id] && mappingMatches(load, mappings[load.id])} · Personal mapping{/if}</p><LoadCard {load} state={states[load.id]} disabled={busy || (!connected && !demo)} {stale} onwrite={write} />{#if load.personalNotes}<p class="personal-notes">{load.personalNotes}</p>{/if}</div>{/each}</div></section>
+    {:else if page === 'Configuration'}
+      <ConfigurationPanel {loads} {rooms} {mappings} {busy} {demo} onsave={saveLocal} onremove={removeLocal} onreview={review} onexport={exportLocal} onimport={importLocal} />
+    {:else}
+      <section aria-labelledby="resources-heading" class="space-y-3"><h2 id="resources-heading" class="section-title">Resource inspector</h2><p class="muted">Read-only diagnostics. Availability depends on your firmware and installation.</p>{#if diagnosticsBusy}<p class="text-sm">Updating diagnostics in the background…</p>{/if}{#each resourceNames as name}<ResourcePanel {name} result={resources[name]} />{/each}</section>
+    {/if}
+    <footer class="workspace-footer">Local access only · Use a trusted LAN. Gateway HTTP is unencrypted; do not expose this app's port. Refreshes every 30 seconds after requests finish. Disconnect forgets the local token, not the gateway account.</footer>
+  </main>
+</div>
+<dialog bind:this={reviewDialog} class="confirmation-dialog" aria-labelledby="review-dialog-heading">
+  <h2 id="review-dialog-heading" tabindex="-1" autofocus>Change gateway metadata?</h2>
+  {#if reviewChange}
+    <p>{reviewLoad?.name || 'Load ' + reviewId} · gateway {host}</p>
+    <dl class="draft-diff">{#each Object.entries(reviewChange.changes) as [field, value]}<div><dt>{field === 'room' ? 'Room' : 'Name'}</dt><dd>{field === 'room' ? rooms.find(room => room.id === reviewChange.expected[field])?.name || 'Unassigned' : String(reviewChange.expected[field] ?? 'Unnamed')} → <strong>{field === 'room' ? rooms.find(room => room.id === value)?.name || 'Room ' + value : String(value)}</strong></dd></div>{/each}</dl>
+    <p>This is a real gateway configuration change, separate from your personal mapping. Values are checked again first. Device commissioning and installer settings are not changed.</p>
+    {#if reviewConflict}<p class="text-warning">Gateway values changed. Refresh and review a new change.</p>{/if}
+    <div class="flex flex-wrap gap-2"><button class="btn btn-outline" onclick={() => reviewDialog.close()}>Cancel</button><button class="btn btn-primary" disabled={busy || demo || !connected || reviewConflict} onclick={applyConfiguration}>Apply this change to gateway</button></div>
+  {/if}
+</dialog>

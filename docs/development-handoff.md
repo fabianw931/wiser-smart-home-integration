@@ -2,85 +2,67 @@
 title: Dashboard implementation handoff
 aliases:
   - Current development handoff
-  - Next session
 tags:
   - wiser
   - dashboard
   - handoff
 type: handoff
-status: functional-poc-hardware-untested
+status: software-tested-hardware-untested
 ---
 
 # Dashboard implementation handoff
 
-The requested local POC is implemented. This note replaces the [historical restart handoff](restart-handoff.md). Development can pause here; no agent work needs recovery.
-
-Branch: `checkpoint/wiser-poc-restart`.
+The current milestone extends the Svelte dashboard with personal configuration and a refreshed interface. The user's intended distinction is **local configuration with normal real device control**, not a simulated-control mode.
 
 ## Delivered
 
-- **Svelte + Vite**, with locally built **Tailwind + daisyUI** styling.
-- Components for connection setup, load controls, and read-only resource inspection.
-- Gateway IP/hostname entry, existing-token connection, or physical-button pairing with a generated unique account name.
-- Discovery and reported state for lights and blinds. On/off, numeric dimming, blind-position, and DALI targets with empty/missing, `tw`, or `rgb` subtypes; unknown subtypes remain read-only. No HVAC, tilt, or stop controls.
-- Sequential core refresh and 30-second polling after core completion. Six optional diagnostic resources load in a separate sequential background pass that can overlap core reads; commands do not trigger diagnostic reads. Missing or invalid primary readings disable the affected card.
-- Command acceptance is displayed separately from reported/physical state.
-- Existing local Node proxy protections retained: localhost binding, Host/Origin checks, custom client header, fixed endpoints, validated targets, redirect rejection, and credential redaction.
-- Server-memory credentials only; disconnect aborts outstanding requests and forgets the local session.
-- Both reviewed connection races fixed: requests still receiving their body cannot reconnect after disconnect; abandoning a pending pairing request cannot establish a new local session. Normal successful connection closure still retains the session.
-- Production assets served by the same Node process; no separate development proxy or runtime CDN is required.
-- Dependency lockfile, Nix development shell, backend regressions, and browser tests with a simulated gateway.
-
-The backend cancellation milestone is commit `0cd6789`. Subsequent frontend and documentation milestones are recorded in Git history on this branch.
+- Room-oriented Home, Configuration, and Diagnostics pages, search, room filtering, responsive teal/cream design, and accessible form labels.
+- On/off, dimming, blind position, DALI brightness, tunable white, and RGBW controls. Connected controls send real commands immediately; there is no enable-live switch.
+- Brightness and blind inputs use percentages with 0.01% precision, translated to integer API values 0–10000. Separate RGBW inputs preserve unrelated channels.
+- Personal names, custom room labels, and notes saved in localStorage, with validated JSON export/import. Mappings persist through browser restarts and gateway reconnects.
+- Local mappings use gateway address and physical load identity. Installer metadata changes do not replace personal labels. Stale identities remain stored but are not applied to the UI.
+- Separate gateway metadata editor for names and existing-room assignments. Explicit review and confirmation, expected-value and identity checks, and stale-session protection.
+- Offline sample home with simulated controls, clearly separated from actual gateway data.
+- Sequential core refresh, independent background diagnostics, and 30-second polling. Missing or invalid readings disable the affected controls.
+- Credentials held only in server memory; browser forms clear tokens. Localhost binding, Host/Origin checks, fixed endpoints, redaction, cancellation handling, and session-scoped writes remain in place.
 
 ## Run
 
-With Node 22.12+ (or after entering `nix-shell`):
+Use Node.js 22.12+ (or the included Nix shell), then run:
 
-```sh
+~~~sh
 npm install
 npm start
-```
+~~~
 
-Open `http://127.0.0.1:3000`. The browser must run on the same machine as the local server, and that machine must be able to reach the gateway's HTTP port 80.
+Open http://127.0.0.1:3000. Use **Explore sample home** for a disconnected demonstration, or connect to the actual gateway. Read [personal mappings](local-mappings.md) for storage and configuration behavior.
 
-See [README](../README.md) for commands, environment details, and restrictions; see [dashboard operation](dashboard.md) before using real equipment.
+## Verification
 
-## Verification performed
+- Svelte checks: zero errors and warnings.
+- Production build: passed.
+- Node tests: 32 passed (28 backend, 4 mapping tests).
+- Browser tests: 13 passed using installed Chrome and a simulated gateway.
+- Screenshots: desktop and 375px mobile layouts generated and reviewed.
+- Physical gateway: not tested.
 
-| Check | Result |
-| --- | --- |
-| Svelte component check | Zero errors and warnings |
-| Vite production build | Passed |
-| Backend suite | 19 tests passed, simulated gateway |
-| Playwright browser suite | 8 tests passed using installed Google Chrome |
-| Narrow layout | 375px overflow check passed; screenshot inspected |
-| Real installation | **Not tested** |
+Tests use loopback fake gateways only. They cover DALI, explicit target acceptance versus reported state, local-only saving, persistence through reconnect, export/import without credentials, separate gateway metadata application, conflict handling, stale sessions, and configuration/discovery races.
 
-The browser suite exercises the built frontend through the real local backend and a loopback-only fake gateway. It covers existing-token connection, simulated physical pairing, optional unsupported resources, on/off/dimming/blind target requests, credential retry, acceptance versus state, stale-state recovery, disconnect, lack of browser credential storage, and keyboard form submission.
+## Next milestones
 
-DALI regressions cover brightness, tunable white, each RGBW channel, preservation of other fields in partial updates, unknown subtypes, missing/invalid readings, and commands/disconnect while diagnostics are pending. The in-app browser was unavailable; browser verification used the project's Playwright suite.
+1. Validate the current controls against redacted data and safe light operations on the installed firmware.
+2. Add backend WebSocket state updates with reconnect snapshots and polling fallback.
+3. Add scene/job/timer workflows with verified account ownership and existing-app compatibility.
+4. Add device/DALI configuration editors after confirming firmware-specific contracts and installer readiness.
+5. Design authenticated household hosting and durable credential management before exposing the service beyond localhost.
 
-This is not exhaustive accessibility, load, compatibility, or long-duration testing. Backend concurrency regressions are automated, but real gateway timing, firmware differences, and physical motion still require installation-specific validation.
+## Limits
 
-## Next session
+- Local unauthenticated service and one shared gateway session; use one tab. Session scopes prevent old tabs from writing to a replaced connection but are not user authentication.
+- Gateway HTTP is unencrypted. Hostnames are syntactically validated, not DNS-pinned.
+- Personal mappings are browser-origin/address-specific; export before changing ports, hostname, or browser profile.
+- Metadata preflight is best-effort, not an atomic gateway transaction.
+- No commissioning, DALI group setup, stop/tilt, HVAC writes, scene execution, or physical hardware validation yet.
+- Disconnect cannot undo an already sent command or revoke a gateway account.
 
-1. Follow the [safe hardware-validation checklist](dashboard.md#safe-first-hardware-validation). Start with discovery and a low-risk light, not a blind.
-2. Record the real gateway generation/firmware and capture only redacted responses if compatibility fixes are needed.
-3. Confirm cover orientation, travel behavior, and actual reported state before relying on blind controls.
-4. Verify sustained polling, interrupted network connections, gateway restarts, and expiry/revocation against the installation.
-5. Decide future features from actual needs: room grouping/search, richer sensors, HVAC, scenes, or WebSocket updates. None is required for this POC.
-
-## Deliberate limits
-
-- Local, unauthenticated, single shared gateway session; no multi-user isolation or persistent token storage.
-- Plain HTTP to a trusted gateway. DNS hostnames are not pinned to an address; prefer a known IP. Do not expose the local server to the Internet or other machines.
-- No TLS gateway discovery, cloud access, Matter bridge, full device/DALI group configuration, calibration, stop/tilt buttons, HVAC writes, or scene execution.
-- Cancelling pairing cannot undo an account the gateway has already created, and disconnect cannot undo a command already sent.
-- One tab is recommended because server credentials/session are shared across tabs.
-
-## Ownership for future work
-
-No workers remain assigned. Start fresh from this branch and this note, not interrupted subagent transcripts.
-
-Follow [AGENT.md](../AGENT.md): use GPT-6.1 Sol for Sol assignments, GPT-6 Luna for requirements/documentation/UX, and Astra only when warranted. Keep ownership separate, verify integrated changes, and commit/push coherent milestones.
+Earlier checkpoints remain in Git history and [restart-handoff.md](restart-handoff.md).
