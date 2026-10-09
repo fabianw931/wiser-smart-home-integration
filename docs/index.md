@@ -48,6 +48,8 @@ Read the [completed-work handoff](development-handoff.md) for the delivered Svel
 
 Read [Entity model](entity-model.md), then [Integration options](integration-options.md).
 
+For automation work, see the [Home Assistant architecture, machine API, and starter package](home-assistant.md).
+
 ### Check evidence and limitations
 
 Read [Sources and open questions](sources.md).

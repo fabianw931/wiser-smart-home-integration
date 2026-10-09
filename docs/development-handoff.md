@@ -16,6 +16,8 @@ The current milestone extends the Svelte dashboard with personal configuration a
 
 ## Delivered
 
+- Opt-in localhost machine API for Home Assistant: bearer authentication, personal-label snapshots, native target commands with separate control enablement, scope/identity preflight, and secret redaction. HA starter package includes an inventory sensor and guarded script, not automatic light/cover discovery. See [Home Assistant guide](home-assistant.md); not deployed or HA-runtime-tested.
+
 - Dashboard room groups (personal room overrides gateway room), optional type/flat grouping, and per-device **Edit details** for local names, rooms, and notes without opening Configuration. Failed edits retain input; cancel makes no changes. See [feature ideas](feature-backlog.md) for the next priorities.
 
 - Room-oriented Home, Configuration, and Diagnostics pages, search, room filtering, responsive teal/cream design, and accessible form labels.
@@ -44,7 +46,7 @@ Open http://127.0.0.1:3000. Use **Explore sample home** for a disconnected demon
 
 - Svelte checks: zero errors and warnings.
 - Production build: passed.
-- Node tests: 39 passed (32 backend, 3 SQLite, 4 mapping tests).
+- Node tests: 44 passed (37 backend, 3 SQLite, 4 mapping tests).
 - Browser tests: 21 passed using installed Chrome and a simulated gateway, including dashboard grouping/editing, migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
 - Screenshots: desktop and 375px mobile layouts generated and reviewed.
 - Physical gateway: not tested.

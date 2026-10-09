@@ -26,6 +26,8 @@ These are research leads, not tested endorsements. Confirm maintenance, licensin
 
 ## Recommended direction
 
+The workspace now includes an opt-in [machine API and HA starter package](home-assistant.md) for using personal SQLite labels in external automation. It is a local-only foundation; native HA entity discovery and secure network deployment remain future work.
+
 **For Home Assistant:** evaluate the existing community integration first. Reimplementing pairing, resource discovery, reconnection, and entity conversion is likely unnecessary if its coverage meets the project's needs.
 
 **For a custom application:** evaluate the existing Python client if Python fits the stack. Otherwise, build a small local REST client and add WebSocket updates around a clearly defined resource model.

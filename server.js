@@ -1,10 +1,10 @@
 import http from 'node:http';
 import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { createMappingStore, DEFAULT_DB_PATH } from './storage.js';
-import { validateMappings } from './src/mappings.js';
+import { validateMappings, mappingMatches } from './src/mappings.js';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
   'sensors', 'hvacgroups', 'hvacgroups/state']);
@@ -72,7 +72,13 @@ async function body(req, limit = 8192) {
 
 // Factory permits tests to use an ephemeral fake gateway, without exposing a port
 // override or arbitrary URL through the public API.
-export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:' } = {}) {
+export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false } = {}) {
+  if (typeof integrationToken !== 'string' || integrationToken !== '' && !/^[A-Za-z0-9_-]{32,256}$/.test(integrationToken)) throw new Error('WISER_INTEGRATION_TOKEN must contain 32–256 URL-safe ASCII characters.');
+  const integrationDigest = createHash('sha256').update(integrationToken).digest();
+  const gatewayKey = active => active.host.replace(/^\[|\]$/g, '');
+  const loadIdentity = (active, load) => createHash('sha256').update(JSON.stringify([
+    gatewayKey(active), load.device ?? null, load.channel ?? null, load.type ?? null, load.sub_type ?? null, load.id,
+  ])).digest('hex');
   const store = createMappingStore(dbPath);
   let session = null;
   let generation = 0;
@@ -124,11 +130,12 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
   }
   // Never relay account secrets, or even a token echoed unexpectedly by a gateway.
   function sanitize(value, token) {
-    if (typeof value === 'string') return token ? value.split(token).join('[redacted]') : value;
+    const redact = text => [token, integrationToken].filter(Boolean).reduce((result, secret) => result.split(secret).join('[redacted]'), text);
+    if (typeof value === 'string') return redact(value);
     if (Array.isArray(value)) return value.map(item => sanitize(item, token));
     if (object(value)) return Object.fromEntries(Object.entries(value)
       .filter(([key]) => !/secret|token|authorization|password/i.test(key))
-      .map(([key, item]) => [token ? key.split(token).join('[redacted]') : key, sanitize(item, token)]));
+      .map(([key, item]) => [redact(key), sanitize(item, token)]));
     return value;
   }
   const server = http.createServer(async (req, res) => {
@@ -160,6 +167,62 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         return res.end(content);
       }
       if (!path.startsWith('/api/')) throw new AppError(404, 'Not found.');
+      if (path.startsWith('/api/integration/')) {
+        if (!integrationToken) throw new AppError(404, 'Not found.');
+        const bearer = typeof req.headers.authorization === 'string' ? /^Bearer ([A-Za-z0-9_-]{32,256})$/.exec(req.headers.authorization)?.[1] : undefined;
+        const supplied = createHash('sha256').update(bearer || '').digest();
+        if (!timingSafeEqual(integrationDigest, supplied)) throw new AppError(401, 'Unauthorized.');
+        const targetRoute = /^\/api\/integration\/v1\/loads\/(0|[1-9]\d{0,9})\/target$/.exec(path);
+        const snapshot = req.method === 'GET' && path === '/api/integration/v1/snapshot';
+        if (!snapshot && !(req.method === 'PUT' && targetRoute)) throw new AppError(404, 'Endpoint not allowed.');
+        if (!snapshot && integrationControl !== true) throw new AppError(403, 'Integration control disabled.');
+        if (!session) throw new AppError(409, 'Connect to a gateway first.');
+        const active = session;
+        const checkSession = () => { if (session !== active) throw new AppError(409, 'Connection changed.'); };
+        if (snapshot) {
+          const loads = await gateway(active.host, active.token, 'loads');
+          checkSession();
+          if (!Array.isArray(loads) || loads.some(load => !object(load) || !Number.isSafeInteger(load.id) || load.id < 0)
+            || new Set(loads.map(load => load.id)).size !== loads.length) throw new AppError(502, 'Gateway returned an invalid load list.');
+          const states = await gateway(active.host, active.token, 'loads/state');
+          checkSession();
+          if (!Array.isArray(states) || states.some(state => !object(state) || !Number.isSafeInteger(state.id) || state.id < 0)
+            || new Set(states.map(state => state.id)).size !== states.length) throw new AppError(502, 'Gateway returned an invalid state list.');
+          const rooms = await gateway(active.host, active.token, 'rooms');
+          checkSession();
+          if (!Array.isArray(rooms) || rooms.some(room => !object(room) || !Number.isSafeInteger(room.id) || room.id < 0)) throw new AppError(502, 'Gateway returned an invalid room list.');
+          const mappings = store.list(gatewayKey(active));
+          const byId = new Map(states.map(state => [state.id, state.state]));
+          const entities = loads.map(load => {
+            const mapping = mappingMatches(load, mappings[load.id]) ? mappings[load.id] : null;
+            const state = byId.get(load.id);
+            const ranges = { bri: [0, 10000], level: [0, 10000], ct: [1000, 20000], red: [0, 255], green: [0, 255], blue: [0, 255], white: [0, 255] };
+            const safeState = object(state) ? Object.fromEntries(Object.entries(ranges)
+              .filter(([field, [min, max]]) => Number.isSafeInteger(state[field]) && state[field] >= min && state[field] <= max)
+              .map(([field]) => [field, state[field]])) : {};
+            return { id: load.id, identity: loadIdentity(active, load),
+              name: mapping?.name ?? (typeof load.name === 'string' ? load.name : null),
+              room: mapping?.room ?? (typeof rooms.find(room => room.id === load.room)?.name === 'string' ? rooms.find(room => room.id === load.room).name : null),
+              type: typeof load.type === 'string' ? load.type : null, sub_type: typeof load.sub_type === 'string' ? load.sub_type : null,
+              unused: !!load.unused, state: safeState };
+          });
+          return reply(200, sanitize({ version: 1, gateway: gatewayKey(active), scope: active.draftScope, observed_at: new Date().toISOString(), entities }, active.token));
+        }
+        const input = await body(req);
+        checkSession();
+        keys(input, ['scope', 'identity', 'target']);
+        if (typeof input.scope !== 'string' || typeof input.identity !== 'string' || !/^[a-f0-9]{64}$/.test(input.identity)) invalid('Supply a valid scope and identity.');
+        if (input.scope !== active.draftScope) throw new AppError(409, 'Connection changed.');
+        const current = await gateway(active.host, active.token, `loads/${targetRoute[1]}`);
+        checkSession();
+        if (!object(current) || current.id !== Number(targetRoute[1])) throw new AppError(502, 'Gateway returned an invalid load.');
+        if (input.identity !== loadIdentity(active, current)) throw new AppError(409, 'Load identity changed; refresh before applying.');
+        validateTarget(current, input.target);
+        checkSession();
+        await gateway(active.host, active.token, `loads/${targetRoute[1]}/target_state`, 'PUT', input.target);
+        checkSession();
+        return reply(200, { accepted: true });
+      }
       // Custom header prevents form submissions and cross-origin simple requests.
       if (req.headers['x-wiser-client'] !== 'local-poc') throw new AppError(403, 'Local app header required.');
       if (path.startsWith('/api/local/')) {
@@ -314,5 +377,5 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
-  createApp({ dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
+  createApp({ dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
 }

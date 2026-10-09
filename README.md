@@ -40,6 +40,10 @@ npm start
 
 Use **Appearance** in the sidebar to choose **System**, **Light**, or **Dark**. System follows your operating system automatically; an explicit choice is remembered in this browser. This preference is separate from SQLite personal mappings and never affects gateway controls.
 
+### Home Assistant and automations
+
+An opt-in, bearer-authenticated machine API now provides personal-label/state snapshots and separately enabled, identity-checked target commands. It remains localhost-only and disabled by default. See the [Home Assistant guide](docs/home-assistant.md) and [starter package](examples/home-assistant/wiser-workspace.yaml). This is an integration foundation, not an installed HA integration or a network-ready service. Use HA as the automation engine; no schedules are installed by this app.
+
 ### Safety and limitations
 
 - **This is a local unauthenticated app controlling real equipment.** Anyone or any program with access to this local service can use its current gateway session. All tabs share one in-memory connection; use one tab. Do not expose, reverse-proxy, forward, or tunnel its port. It is not a multi-user service or a production home-automation controller.

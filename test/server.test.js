@@ -529,6 +529,156 @@ test('normal response closure preserves an established connection', async t => {
   assert.equal((await f.request('/api/read/loads')).status, 200);
 });
 
+const integrationToken = 'test-integration-token-01234567890';
+const machineHeaders = { 'X-Wiser-Client': undefined, Authorization: `Bearer ${integrationToken}` };
+const snapshotPath = '/api/integration/v1/snapshot';
+
+test('integration is opt-in, validates credentials, and retains local request protections', async t => {
+  for (const token of ['short', 'x'.repeat(257), 'x'.repeat(32) + '\n', 'x'.repeat(32) + '+', null]) assert.throws(() => createApp({ integrationToken: token }));
+  const disabled = await fixture(t);
+  assert.equal((await disabled.request(snapshotPath, 'GET', undefined, machineHeaders)).status, 404);
+  const f = await fixture(t, { integrationToken });
+  for (const Authorization of [undefined, '', 'Bearer wrong', `Bearer ${'x'.repeat(32)}`]) {
+    const result = await f.request(snapshotPath, 'GET', undefined, { ...machineHeaders, Authorization });
+    assert.equal(result.status, 401);
+    assert.deepEqual(result.body, { error: 'Unauthorized.' });
+  }
+  assert.equal((await f.request(`${snapshotPath}?token=${integrationToken}`, 'GET', undefined, { 'X-Wiser-Client': undefined })).status, 401);
+  assert.equal((await f.request(`${snapshotPath}?token=${integrationToken}`, 'GET', undefined, machineHeaders)).status, 404);
+  for (const headers of [{ Origin: 'http://evil.local' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+    assert.equal((await f.request(snapshotPath, 'GET', undefined, { ...machineHeaders, ...headers })).status, 403);
+  }
+  const badHost = await new Promise((resolve, reject) => {
+    const req = http.get(`http://127.0.0.1:${f.appPort}${snapshotPath}`, { headers: { Host: 'evil.local', Authorization: `Bearer ${integrationToken}` } }, res => { res.resume(); resolve(res.statusCode); });
+    req.on('error', reject);
+  });
+  assert.equal(badHost, 403);
+  assert.equal((await f.request('/api/session', 'GET', undefined, machineHeaders)).status, 403);
+  assert.equal((await f.request(snapshotPath, 'GET', undefined, machineHeaders)).status, 409);
+  assert.equal(f.calls.length, 0);
+});
+
+test('snapshot merges matching personal labels, exposes safe fields, and does not discover browser controls', async t => {
+  const load = { id: 1, device: 3, channel: 2, type: 'dim', sub_type: '', room: 2, name: `Light fake-secret ${integrationToken}`, secret: 'private' };
+  const f = await fixture(t, { integrationToken, onGateway(req, res) {
+    const data = req.url === '/api/loads' ? [load] : req.url === '/api/loads/state'
+      ? [{ id: 1, state: { bri: 1234, ct: 1.5, red: '5', green: -1, blue: 256, secret: 'private', notes: 'private' } }] : undefined;
+    if (!data) return false;
+    res.end(JSON.stringify({ status: 'success', data }));
+    return true;
+  } });
+  await f.connect();
+  const first = await f.request(snapshotPath, 'GET', undefined, machineHeaders);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.version, 1);
+  assert.equal(first.body.gateway, '127.0.0.1');
+  assert.ok(!JSON.stringify(first.body).includes(integrationToken));
+  assert.ok(!JSON.stringify(first.body).includes('fake-secret'));
+  assert.deepEqual(first.body.entities[0].state, { bri: 1234 });
+  assert.equal(first.body.entities[0].room, 'Office');
+  assert.match(first.body.observed_at, /^\d{4}-/);
+  await f.request('/api/local/mappings/1?gateway=127.0.0.1', 'PUT', { identity: '[1,3,2,"dim"]', name: 'Personal', room: 'Personal room', notes: 'hidden' });
+  const second = (await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body;
+  assert.equal(second.entities[0].name, 'Personal');
+  assert.equal(second.entities[0].room, 'Personal room');
+  assert.equal(second.entities[0].identity, first.body.entities[0].identity);
+  assert.ok(!JSON.stringify(second).includes('hidden'));
+  await f.request('/api/local/mappings/1?gateway=127.0.0.1', 'PUT', { identity: '[1,3,2,"dim"]', name: 'Unassigned', room: '', notes: '' });
+  assert.equal((await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body.entities[0].room, '');
+  await f.request('/api/local/mappings/1?gateway=127.0.0.1', 'PUT', { identity: '[1,999,2,"dim"]', name: 'Wrong hardware', room: 'Wrong room', notes: '' });
+  const mismatched = (await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body.entities[0];
+  assert.notEqual(mismatched.name, 'Wrong hardware');
+  assert.equal(mismatched.room, 'Office');
+  const before = f.calls.length;
+  assert.equal((await f.request('/api/loads/1/target_state', 'PUT', { bri: 0 })).status, 400);
+  assert.equal(f.calls.length, before);
+  f.setMode('http-500');
+  assert.equal((await f.request(snapshotPath, 'GET', undefined, machineHeaders)).status, 502);
+});
+
+test('integration control requires opt-in and fresh matching identity and scope', async t => {
+  const readOnly = await fixture(t, { integrationToken });
+  assert.equal((await readOnly.request('/api/integration/v1/loads/1/target', 'PUT', {}, machineHeaders)).status, 403);
+  assert.equal(readOnly.calls.length, 0);
+  let changed = false;
+  const f = await fixture(t, { integrationToken, integrationControl: true, onGateway(req, res) {
+    if (req.url !== '/api/loads/1' || !changed) return false;
+    res.end(JSON.stringify({ status: 'success', data: { id: 1, type: 'onoff', channel: 42 } }));
+    return true;
+  } });
+  await f.connect();
+  const snapshot = (await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body;
+  const input = { scope: snapshot.scope, identity: snapshot.entities[0].identity, target: { bri: 10000 } };
+  const route = '/api/integration/v1/loads/1/target';
+  for (const invalid of [{ ...input, scope: 'old' }, { ...input, identity: 'f'.repeat(64) }, { ...input, target: { bri: 5 } }, { ...input, target: { bri: 0, extra: 1 } }, { ...input, extra: true }]) {
+    assert.ok([400, 409].includes((await f.request(route, 'PUT', invalid, machineHeaders)).status));
+  }
+  assert.equal(f.calls.some(call => call.method === 'PUT'), false);
+  assert.deepEqual((await f.request(route, 'PUT', input, machineHeaders)).body, { accepted: true });
+  assert.deepEqual(f.calls.at(-1).payload, { bri: 10000 });
+  changed = true;
+  assert.equal((await f.request(route, 'PUT', input, machineHeaders)).status, 409);
+  assert.equal(f.calls.filter(call => call.method === 'PUT').length, 1);
+  await f.connect();
+  const before = f.calls.length;
+  assert.equal((await f.request(route, 'PUT', input, machineHeaders)).status, 409);
+  assert.equal(f.calls.length, before);
+});
+
+test('integration forwards DALI and blind targets without converting native units', async t => {
+  const loads = [
+    { id: 6, type: 'dali', sub_type: 'tw', device: 'dali-white', channel: 0 },
+    { id: 7, type: 'dali', sub_type: 'rgb', device: 'dali-color', channel: 1 },
+    { id: 8, type: 'motor', device: 'blind', channel: 0 },
+  ];
+  const f = await fixture(t, { integrationToken, integrationControl: true, onGateway(req, res) {
+    const single = /^\/api\/loads\/(6|7|8)$/.exec(req.url);
+    if (req.url !== '/api/loads' && !single) return false;
+    res.end(JSON.stringify({ status: 'success', data: single ? loads.find(load => load.id === Number(single[1])) : loads }));
+    return true;
+  } });
+  await f.connect();
+  const snapshot = (await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body;
+  const targets = [{ ct: 4200 }, { red: 255, white: 64 }, { level: 2500 }];
+  for (const [index, entity] of snapshot.entities.entries()) {
+    assert.deepEqual(entity.state, {});
+    const result = await f.request(`/api/integration/v1/loads/${entity.id}/target`, 'PUT', {
+      scope: snapshot.scope, identity: entity.identity, target: targets[index],
+    }, machineHeaders);
+    assert.equal(result.status, 200);
+  }
+  assert.deepEqual(f.calls.filter(call => call.method === 'PUT').map(call => call.payload), targets);
+});
+
+test('disconnect during integration preflight prevents control and cached snapshots', async t => {
+  let arrived;
+  const requested = new Promise(resolve => { arrived = resolve; });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  let hold = false;
+  const f = await fixture(t, { integrationToken, integrationControl: true, onGateway: async (req, res) => {
+    if (!hold || req.url !== '/api/loads/1') return false;
+    arrived();
+    await held;
+    res.end(JSON.stringify({ status: 'success', data: { id: 1, type: 'onoff' } }));
+    return true;
+  } });
+  try {
+    await f.connect();
+    const snapshot = (await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body;
+    hold = true;
+    const applying = f.request('/api/integration/v1/loads/1/target', 'PUT', { scope: snapshot.scope, identity: snapshot.entities[0].identity, target: { bri: 0 } }, machineHeaders);
+    await requested;
+    await f.request('/api/disconnect', 'POST');
+    await f.connect();
+    release();
+    assert.notEqual((await applying).status, 200);
+    assert.equal(f.calls.some(call => call.method === 'PUT'), false);
+    await f.request('/api/disconnect', 'POST');
+    assert.equal((await f.request(snapshotPath, 'GET', undefined, machineHeaders)).status, 409);
+  } finally { release(); }
+});
+
 test('draft scope stays stable within a session and changes on every connection', async t => {
   const f = await fixture(t);
   assert.equal((await f.request('/api/session')).body.draftScope, null);
