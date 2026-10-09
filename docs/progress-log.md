@@ -23,7 +23,18 @@
 
 1. Inspect `git status` and `git log -5 --oneline`; confirm published main state if needed.
 2. Read `docs/ha-native.md`, `docs/integration-listener.md`, and `docs/remembered-connection.md`.
-3. Ask where the app should run permanently (always-on server/VM preferred over sleeping laptop). That choice is still unanswered. Confirm HA installation type and VM address.
+3. User chose the laptop as app host for now; it must remain awake for HA connectivity. HA installation is deferred while refining the web app. Confirm HA installation type and VM address when resuming deployment.
 4. Agree on private endpoint DNS, trusted TLS certificate provisioning, service account, token distribution, and firewall restricted to the HA VM. Do not expose port 3000 or disable TLS verification.
 5. With explicit deployment approval, install the custom integration into HA, validate read-only first, then supervise a harmless light command before any blind movement. HA runtime validation is still outstanding.
 6. Keep installer commissioning untouched. No schedules/automations are installed automatically. Do not rebind changed device identities silently.
+
+## 2026-10-09 — buttons and weather
+
+- User prioritizes installed weather station and button functionality over HA deployment.
+- Compared current Feller OpenAPI 6.0.47 button, sensor, SmartButton and WEST-group schemas. Sensor values may be scalar despite the broad schema; zero/false must not be treated as missing. Button IDs may be null for unregistered inputs.
+- Added dedicated Buttons and Weather navigation, searchable/filterable resource cards, job references, weather protection rules with load names, raw-detail fallbacks, separate fetch timestamps, and 90-second stale status. Included disconnected sample data.
+- New read-only collections: buttons, smartbuttons, westgroups. Existing sensors collection supplies readings. No weather test calls or installer configuration writes.
+- Only new write: explicit two-second button identification. Backend validates physical identity against fresh discovery and current scoped live intent before fixed PUT ping. No registration, bindings, reassignment, job execution, or persistent LED override.
+- Deliberately do not infer station ownership, live protection alarms, switch-to-load bindings, or undocumented button event formats. Press-event monitoring and optional registration are follow-up work needing verified firmware/event examples.
+- No real gateway credentials read and no physical equipment contacted. Restart `npm start` to rebuild and expose the new navigation.
+- Verification: production build and Svelte checks passed; 26 browser tests passed, with the 3 installation tests rerun after the final identification-error wording change. Node suite: 63 passed, 1 TLS test skipped in the default environment then passed using `nix shell nixpkgs#openssl -c node --test test/integration-listener.test.js` (both TLS tests passed). All 64 Node tests validated. Tests use synthetic loopback gateways, not installed equipment.

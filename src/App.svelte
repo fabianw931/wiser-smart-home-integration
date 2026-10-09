@@ -6,12 +6,13 @@
   import ConnectionForm from './components/ConnectionForm.svelte';
   import LoadCard from './components/LoadCard.svelte';
   import ResourcePanel from './components/ResourcePanel.svelte';
+  import InstallationPanel from './components/InstallationPanel.svelte';
   import ConfigurationPanel from './components/ConfigurationPanel.svelte';
   import { sampleHome } from './demo.js';
   import { makeMapping, mappingMatches, readMappings, saveMappings, exportMappings, importMappings } from './mappings.js';
 
   const api = createApi();
-  const resourceNames = ['info', 'rooms', 'devices', 'sensors', 'hvacgroups', 'hvacgroups/state'];
+  const resourceNames = ['info', 'rooms', 'buttons', 'sensors', 'westgroups', 'smartbuttons', 'devices', 'hvacgroups', 'hvacgroups/state'];
   let host = '';
   let connected = false;
   let busy = true;
@@ -128,7 +129,7 @@
     clearTimeout(timer); api.cancel(); epoch++;
     const sample = sampleHome();
     demo = true; connected = false; busy = true; stale = false; diagnosticsBusy = false;
-    loads = sample.loads; states = sample.states; resources = { rooms: { data: sample.rooms } };
+    loads = sample.loads; states = sample.states; resources = Object.fromEntries(['rooms', 'buttons', 'sensors', 'westgroups', 'smartbuttons'].map(name => [name, { data: sample[name] }]));
     const current = epoch;
     await restoreLocal('sample-home');
     if (current !== epoch) return;
@@ -227,7 +228,7 @@
     try {
       for (const name of resourceNames) {
         let result;
-        try { result = { data: await read(name) }; }
+        try { result = { data: await read(name), observedAt: Date.now() }; }
         catch (failure) { result = { error: failure.message, unsupported: [404, 405, 501].includes(failure.status) }; }
         if (current !== epoch) return;
         resources = { ...resources, [name]: result };
@@ -237,6 +238,19 @@
     }
   }
   function refresh() { return operation(current => loadAll(current)); }
+  async function identifyButton(button) {
+    if (demo || !connected || busy) return;
+    await operation(async current => {
+      commandNotice = '';
+      try {
+        await api.request('/api/buttons/identify', 'POST', { device: button.device, channel: button.channel }, true);
+        if (current !== epoch) return;
+        commandNotice = 'Identification request accepted — look for the flashing button LED. No button assignment was changed.';
+      } catch (failure) {
+        if (current === epoch) error = 'Could not confirm button identification: ' + failure.message;
+      }
+    });
+  }
   async function connect(payload) {
     demo = false;
     stopLive?.(); liveEpoch = -1; liveStatus = 'polling'; livePatches = [];
@@ -338,7 +352,7 @@
 <div class="app-shell">
   <aside class="sidebar">
     <div><div class="brand">wiser<span class="brand-accent">.</span></div><p class="brand-caption">Your home, connected</p></div>
-    <nav aria-label="Main navigation">{#each ['Home', 'Configuration', 'Diagnostics'] as item}<button class:active={page === item} aria-current={page === item ? 'page' : undefined} onclick={() => page = item}>{item}</button>{/each}</nav>
+    <nav aria-label="Main navigation">{#each ['Home', 'Buttons', 'Weather', 'Configuration', 'Diagnostics'] as item}<button class:active={page === item} aria-current={page === item ? 'page' : undefined} onclick={() => page = item}>{item}</button>{/each}</nav>
     <ThemePicker />
     <div class="sidebar-footer">Wiser by Feller<br>Local control workspace<br>{demo ? 'Sample home' : connected ? host : 'No gateway connected'}</div>
   </aside>
@@ -374,6 +388,8 @@
           {/each}</div>
         </section>
       {/each}</section>
+    {:else if page === 'Buttons' || page === 'Weather'}
+      {#key page}<InstallationPanel kind={page} {resources} loads={displayedLoads} disabled={busy || !connected} {demo} refreshing={diagnosticsBusy} onidentify={identifyButton} />{/key}
     {:else if page === 'Configuration'}
       <ConfigurationPanel {loads} {rooms} {mappings} busy={busy || mappingBusy} {demo} onsave={saveLocal} onremove={removeLocal} onreview={review} onexport={exportLocal} onimport={importLocal} />
     {:else}

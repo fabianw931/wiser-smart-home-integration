@@ -9,7 +9,7 @@ import { createCredentialStore } from './credentials.js';
 import { createLiveSession } from './live.js';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
-  'sensors', 'hvacgroups', 'hvacgroups/state']);
+  'sensors', 'buttons', 'smartbuttons', 'westgroups', 'hvacgroups', 'hvacgroups/state']);
 function asset(path) {
   if (path === '/') return ['index.html', 'text/html'];
   if (/^\/assets\/[a-zA-Z0-9_-]+\.(js|css)$/.test(path)) {
@@ -317,7 +317,8 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         } finally { if (generation === current) connecting = false; }
       }
       if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
-        || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path))
+        || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path)
+        || req.method === 'POST' && path === '/api/buttons/identify')
         && req.headers['x-wiser-intent'] !== 'live') throw new AppError(403, 'Explicit live intent required.');
       if (!session) throw new AppError(409, 'Connect to a gateway first.');
       const active = session;
@@ -328,7 +329,8 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         return;
       }
       if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
-        || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path))
+        || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path)
+        || req.method === 'POST' && path === '/api/buttons/identify')
         && req.headers['x-wiser-scope'] !== active.draftScope) throw new AppError(409, 'Connection changed.');
       const resource = path.slice('/api/read/'.length);
       if (req.method === 'GET' && path.startsWith('/api/read/') && READS.has(resource)) {
@@ -342,6 +344,27 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
           active.loads = new Map(data.map(load => [String(load.id), load]));
         }
         return reply(200, { data: sanitize(data, active.token) });
+      }
+      if (req.method === 'POST' && path === '/api/buttons/identify') {
+        const checkSession = () => { if (session !== active) throw new AppError(409, 'Connection changed.'); };
+        const input = await body(req);
+        checkSession();
+        keys(input, ['device', 'channel']);
+        if (typeof input.device !== 'string' || !/^[a-fA-F0-9]{1,64}$/.test(input.device)
+          || !Number.isSafeInteger(input.channel) || input.channel < 0) invalid('Supply a valid physical device and channel.');
+        const buttons = await gateway(active.host, active.token, 'buttons');
+        checkSession();
+        if (!Array.isArray(buttons) || buttons.some(button => !object(button))) throw new AppError(502, 'Gateway returned an invalid button list.');
+        const matches = buttons.filter(button => button.device === input.device && button.channel === input.channel);
+        if (matches.length !== 1) invalid('Select a uniquely discovered physical button.');
+        const button = matches[0];
+        // Unregistered buttons have no logical id; physical addressing still identifies them.
+        const address = Number.isSafeInteger(button.id) && button.id >= 0 && button.id <= 9999999999
+          ? String(button.id) : `${input.device}_${input.channel}`;
+        checkSession();
+        await gateway(active.host, active.token, `buttons/${address}/ping`, 'PUT', { time_ms: 2000 });
+        checkSession();
+        return reply(200, { accepted: true });
       }
       const match = /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.exec(path);
       if (req.method === 'PUT' && match) {

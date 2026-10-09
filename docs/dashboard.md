@@ -35,7 +35,21 @@ See [local mappings](local-mappings.md) for storage boundaries and import behavi
 
 The dashboard now subscribes to gateway load-state changes through a scoped local stream. The update indicator shows Live or Polling. Partial updates preserve unrelated channels; reconnect requests a fresh snapshot. Thirty-second polling remains enabled as a fallback and consistency check. This is tested with fake gateways, not yet on physical equipment.
 
-Diagnostics exposes fixed, read-only resource collections: info, rooms, devices, sensors, HVAC groups and states. The app also reads loads and load states. Unsupported resources are shown separately.
+Diagnostics exposes fixed, read-only resource collections: info, rooms, devices, sensors, buttons, SmartButtons, weather groups, HVAC groups and states. The app also reads loads and load states. Unsupported resources are shown separately.
+
+## Buttons and weather
+
+**Buttons** lists registered and unregistered physical inputs, with search, physical-device filters, and reported job references. Missing job metadata does not mean a switch is unbound. The SmartButton list is shown separately; no registration, reassignment, job execution, or press-event monitoring is implemented yet.
+
+**Identify · flash LED for 2 seconds** is an explicit physical action. The backend freshly checks the selected device/channel, requires the current session and live intent, and sends only a fixed two-second LED ping. It cannot change assignments or override LEDs persistently. Unregistered inputs use the documented physical `device_channel` address. Sample-home identification is disabled.
+
+**Weather** shows sensor values and units reported by the gateway. Zero wind and false rain/hail are valid readings, not missing data. Missing or unrecognized values are marked unavailable. All sensor types are included because temperature/illuminance alone do not establish weather-station membership; filter by physical device to inspect a station. No sensor units or station associations are guessed.
+
+Weather protection cards show configured wind/temperature/rain/hail actions, thresholds, and associated load names. These are configuration snapshots, **not live alarms, active-lock indicators, or proof that equipment is protected**. Weather tests, bindings, thresholds, and commissioning remain untouched.
+
+Both pages use background snapshot reads with independent fetch timestamps, unsupported/unavailable indicators, and stale status after 90 seconds. The Live indicator concerns load updates only; button/weather push events are not consumed. Refresh now requests a new snapshot. The sample home includes fictional buttons and weather for disconnected exploration.
+
+Contract: [Feller OpenAPI 6.0.47](https://github.com/Feller-AG/wiser-api/blob/main/docs/6.0.47/ugateway_openapi_domain_public.yaml), button inventory/ping, sensors, SmartButtons, and WEST groups. These features have fake-gateway coverage; exact firmware support and physical LED behavior still require hardware validation.
 
 **Explore sample home** is explicitly fictional and disconnected. Its controls simulate values without gateway requests. Sample mappings have their own local storage scope.
 

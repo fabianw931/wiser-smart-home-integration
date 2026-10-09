@@ -47,6 +47,7 @@ export const test = base.extend({
       applyTargets: true,
       failAfterTarget: false,
       rejectAuth: false,
+      installationResources: {},
       // A synthetic fixture value, never a real gateway credential.
       token: 'synthetic-browser-fixture-token',
     };
@@ -67,6 +68,9 @@ export const test = base.extend({
         return reply(401, { status: 'error', message: 'Rejected synthetic credential' });
       }
       if (req.url === '/api/info') return success({ name: 'Browser fixture gateway' });
+      const installationName = req.url.slice('/api/'.length);
+      if (Object.hasOwn(control.installationResources, installationName)) return success(control.installationResources[installationName]);
+      if (req.method === 'PUT' && /^\/api\/buttons\/[a-f0-9_]+\/ping$/.test(req.url)) return success(payload);
       if (req.url === '/api/loads') return success(loads);
       const loadMetadata = /^\/api\/loads\/(\d+)$/.exec(req.url);
       if (loadMetadata) {
