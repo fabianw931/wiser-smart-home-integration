@@ -46,8 +46,8 @@ Open http://127.0.0.1:3000. Use **Explore sample home** for a disconnected demon
 
 - Svelte checks: zero errors and warnings.
 - Production build: passed.
-- Node tests: 52 passed (39 backend, 6 credential-store, 3 SQLite, 4 mapping tests).
-- Browser tests: 22 passed using installed Chrome and a simulated gateway, including dashboard grouping/editing, migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
+- Node tests: 57 passed, including live-stream and HTTPS-listener tests.
+- Browser tests: 23 passed using installed Chrome and a simulated gateway, including dashboard grouping/editing, migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
 - Screenshots: desktop and 375px mobile layouts generated and reviewed.
 - Physical gateway: not tested.
 
@@ -57,7 +57,7 @@ Tests use loopback fake gateways only. They cover DALI, explicit target acceptan
 
 1. Validate the current controls against redacted data and safe light operations on the installed firmware.
 2. Cache installation inventory in SQLite so personal mappings can be edited while disconnected.
-3. Add backend WebSocket state updates with reconnect snapshots and polling fallback.
+3. Validate implemented WebSocket updates on physical hardware; deploy the HA adapter after TLS and host decisions.
 4. Add scene/job/timer workflows with verified account ownership and existing-app compatibility.
 5. Add device/DALI configuration editors after confirming firmware-specific contracts and installer readiness.
 6. Design authenticated household hosting and durable credential management before exposing the service beyond localhost.

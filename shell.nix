@@ -1,4 +1,4 @@
 { pkgs ? import <nixpkgs> {} }:
 pkgs.mkShell {
-  packages = [ pkgs.nodejs_22 ];
+  packages = [ pkgs.nodejs_22 pkgs.openssl ];
 }

@@ -1,0 +1,12 @@
+{
+  "domain": "wiser_workspace",
+  "name": "Wiser Workspace",
+  "version": "0.1.0",
+  "documentation": "https://github.com/fabianw931/wiser-smart-home-integration/blob/main/docs/ha-native.md",
+  "config_flow": true,
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "dependencies": [],
+  "requirements": [],
+  "codeowners": []
+}

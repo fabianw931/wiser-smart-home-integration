@@ -10,6 +10,7 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./jsconfig.json",
     "start": "npm run build && node server.js",
+    "start:integration": "node integration-listener.js",
     "test": "npm run build && node --test test/*.test.js",
     "test:e2e": "npm run build && playwright test"
   },

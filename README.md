@@ -33,7 +33,7 @@ npm start
 3. In **Configuration**, save your personal names, custom room labels, and notes. These are stored in the local `data/wiser.sqlite` database and are never sent to the gateway. Device controls keep working. **Export mappings** downloads a portable JSON backup; **Import mappings** restores missing entries. See [personal mappings](docs/local-mappings.md).
 4. Actual gateway name/room changes are available separately under **Change gateway metadata…**. Review the changes and confirm **Apply this change to gateway**. Personal mappings are never applied automatically. Installer settings and device commissioning are not touched.
 5. Use **Explore sample home** for a clearly labeled offline demonstration. Its controls simulate fictional devices.
-6. **Diagnostics** shows optional read-only resources. Core state polling runs 30 seconds after requests finish; slow diagnostics do not block controls.
+6. **Diagnostics** shows optional read-only resources. Gateway push updates appear live, with a visible Live/Polling indicator. Polling every 30 seconds remains as fallback; slow diagnostics do not block controls.
 7. Select **Remember this gateway on this computer** when connecting to enable encrypted local credential storage and startup reconnect. **Disconnect for now** keeps it; **Disconnect & forget credentials** clears the active and saved connection. See [remembered connections](docs/remembered-connection.md).
 
 ### Appearance
@@ -42,7 +42,7 @@ Use **Appearance** in the sidebar to choose **System**, **Light**, or **Dark**. 
 
 ### Home Assistant and automations
 
-An opt-in, bearer-authenticated machine API now provides personal-label/state snapshots and separately enabled, identity-checked target commands. It remains localhost-only and disabled by default. See the [Home Assistant guide](docs/home-assistant.md) and [starter package](examples/home-assistant/wiser-workspace.yaml). This is an integration foundation, not an installed HA integration or a network-ready service. Use HA as the automation engine; no schedules are installed by this app.
+An opt-in machine API provides snapshots and identity-checked targets. The [native HA integration](docs/ha-native.md) creates lights and covers through a [separate HTTPS listener](docs/integration-listener.md). Neither is deployed automatically; TLS and VM-restricted access must be provisioned first. The browser app remains localhost-only. Use HA as the automation engine; no schedules are installed.
 
 ### Safety and limitations
 
@@ -53,7 +53,7 @@ An opt-in, bearer-authenticated machine API now provides personal-label/state sn
 - Only fixed read endpoints (`info`, `loads`, `loads/state`, `rooms`, `devices`, `sensors`, `hvacgroups`, `hvacgroups/state`), account claim, validated targets, and validated name/room updates for discovered loads are proxied. There is no generic URL proxy. No job execution, identification, commissioning, calibration, or other potentially side-effecting GET discovery is performed.
 - Gateway host validation allows IP addresses and DNS hostnames, not arbitrary URLs/ports/paths. It does not enforce a private-address subnet or pin hostname resolution; only enter a gateway you trust, preferably its known IP address. Redirects are not followed.
 - Optional resources vary by firmware and may show **unsupported** or an error. Read-only JSON preserves gateway fields without inventing sensor units or HVAC behavior. A write acknowledgement is not physical-state confirmation; the page refreshes reported state after writes. Sample data is displayed only in the explicitly selected sample home.
-- No WebSocket subscription,  cloud access, account management, full device/DALI group configuration, advanced installer settings, scenes, or hardware integration test is included. Personal configuration supports names, custom room labels, and notes; actual gateway configuration supports names and existing-room assignments. Limited DALI color and tunable-white target controls are available for recognized load subtypes. Polling and real equipment behavior still require validation on your installation.
+- No cloud access, account management, full device/DALI group configuration, advanced installer settings, scenes, or hardware integration test is included. Personal configuration supports names, custom room labels, and notes; actual gateway configuration supports names and existing-room assignments. Limited DALI color and tunable-white target controls are available for recognized load subtypes. Polling and real equipment behavior still require validation on your installation.
 
 ### Tests
 

@@ -9,3 +9,5 @@ data/
 *.sqlite-wal
 *.sqlite-journal
 credentials/
+__pycache__/
+*.pyc

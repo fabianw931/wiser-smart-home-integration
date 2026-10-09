@@ -1,0 +1,7 @@
+{
+  "config": {
+    "step": {"user": {"title": "Connect Wiser Workspace", "description": "Use the trusted HTTPS machine API origin and its separate integration token.", "data": {"url": "HTTPS origin", "token": "Integration token"}}},
+    "error": {"invalid_url": "Enter an HTTPS origin without a path, query, or credentials.", "invalid_auth": "The integration token was rejected.", "cannot_connect": "Cannot fetch a valid workspace snapshot. Check connectivity, TLS trust, and the gateway connection."},
+    "abort": {"already_configured": "This gateway is already configured.", "wrong_gateway": "The endpoint now serves a different gateway.", "reauth_successful": "Credentials updated."}
+  }
+}

@@ -33,6 +33,8 @@ See [local mappings](local-mappings.md) for storage boundaries and import behavi
 
 ## Diagnostics and sample home
 
+The dashboard now subscribes to gateway load-state changes through a scoped local stream. The update indicator shows Live or Polling. Partial updates preserve unrelated channels; reconnect requests a fresh snapshot. Thirty-second polling remains enabled as a fallback and consistency check. This is tested with fake gateways, not yet on physical equipment.
+
 Diagnostics exposes fixed, read-only resource collections: info, rooms, devices, sensors, HVAC groups and states. The app also reads loads and load states. Unsupported resources are shown separately.
 
 **Explore sample home** is explicitly fictional and disconnected. Its controls simulate values without gateway requests. Sample mappings have their own local storage scope.

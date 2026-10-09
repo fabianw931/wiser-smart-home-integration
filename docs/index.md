@@ -40,6 +40,8 @@ See the [dashboard architecture, use, scope, and hardware-validation checklist](
 
 ### Continue development
 
+Start with the [progress log and restart notes](progress-log.md), then the [native Home Assistant integration](ha-native.md) and [machine-only HTTPS listener](integration-listener.md).
+
 See the [prioritized feature brainstorm](feature-backlog.md) for offline inventory, favorites, installation checklists, and longer-term control workflows.
 
 Read the [completed-work handoff](development-handoff.md) for the delivered Svelte POC, verification evidence, and remaining work. The earlier [restart checkpoint](restart-handoff.md) is historical.

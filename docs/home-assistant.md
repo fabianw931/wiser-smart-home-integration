@@ -13,7 +13,7 @@ Two paths are feasible:
 
 The [community integration](https://github.com/Syonix/ha-wiser-by-feller) documents HACS installation and support for lighting, covers, and scene buttons. It recommends finishing electrician configuration first and using a distinct pairing username for each client. Do not replace an existing gateway account or assume DALI capabilities without testing your firmware.
 
-The implemented first milestone is a versioned machine API and an example HA package. It is **not** an installed HA integration, MQTT discovery bridge, or production automation service. Normal `light`/`cover` entities with automatic discovery are a subsequent adapter milestone. The starter package provides an inventory sensor and a guarded script action instead.
+The repository now also includes a [native HA integration](ha-native.md) and [machine-only HTTPS listener](integration-listener.md). These are not installed on your VM yet. The native adapter creates light/cover entities at setup; the older starter package provides an inventory sensor and guarded script. Choose one control integration per load to avoid duplicates.
 
 ## Enable locally, read-only first
 
@@ -21,7 +21,7 @@ The API is disabled unless `WISER_INTEGRATION_TOKEN` is supplied at server start
 
 The app still binds only to `127.0.0.1`. Authenticate with `Authorization: Bearer <integration-token>`. The integration token is not stored in SQLite or returned to the browser. Connect the app to the gateway normally before requesting snapshots. Opt-in [remembered connections](remembered-connection.md) reconnect once on server startup; a failed attempt requires a manual retry. A continuously supervised connection lifecycle is not yet implemented.
 
-**Do not expose the current app port to your LAN or Internet.** Its browser endpoints are still an unauthenticated local workspace. Adding a machine token does not secure those endpoints. A dedicated authenticated listener or authenticated route-isolating deployment needs separate design before remote access. In HA OS or a container, `127.0.0.1` refers to HA's own network namespace, not your laptop.
+**Do not expose the current app port to your LAN or Internet.** Its browser endpoints are still an unauthenticated local workspace. Adding a machine token does not secure those endpoints. The separate HTTPS listener is implemented, but needs certificate provisioning and VM-restricted firewall/service configuration before remote access. In HA OS or a container, `127.0.0.1` refers to HA's own network namespace, not your laptop.
 
 ## API v1
 
