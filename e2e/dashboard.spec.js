@@ -1,5 +1,27 @@
 import { test, expect } from './gateway-fixture.js';
 
+test.describe('live gateway updates', () => {
+  test.use({ liveUpdates: true });
+  test('wall-switch pushes update reported state and reconnect resynchronizes', async ({ page, gateway }) => {
+    await connect(page, gateway);
+    await expect(page.getByText('Updates: Live · gateway push connected')).toBeVisible();
+    const hall = page.getByRole('article', { name: 'Hall light', exact: true });
+    gateway.control.pushState(1, { bri: 10000 });
+    await expect(hall.getByTestId('reported-state')).toHaveText('Reported: On');
+    const color = page.getByRole('article', { name: 'DALI color', exact: true });
+    gateway.control.pushState(8, { red: 200 });
+    await expect(color).toContainText('Reported Red: 200');
+    await expect(color.getByTestId('reported-state')).toHaveText('Reported: 60% brightness');
+    gateway.control.dropLive();
+    gateway.control.states.set(1, { bri: 0 });
+    await expect(hall.getByTestId('reported-state')).toHaveText('Reported: Off', { timeout: 15000 });
+    expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+    await page.getByRole('button', { name: 'Disconnect & forget credentials' }).click();
+    gateway.control.pushState(1, { bri: 10000 });
+    await expect(page.getByRole('article')).toHaveCount(0);
+  });
+});
+
 test('remembered connection can disconnect temporarily, reconnect and be forgotten', async ({ page, gateway }) => {
   await page.goto(gateway.url);
   await page.getByLabel(/Gateway IP or hostname/).fill('127.0.0.1');

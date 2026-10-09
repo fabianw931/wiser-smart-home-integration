@@ -6,6 +6,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createMappingStore, DEFAULT_DB_PATH } from './storage.js';
 import { validateMappings, mappingMatches } from './src/mappings.js';
 import { createCredentialStore } from './credentials.js';
+import { createLiveSession } from './live.js';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
   'sensors', 'hvacgroups', 'hvacgroups/state']);
@@ -73,7 +74,7 @@ async function body(req, limit = 8192) {
 
 // Factory permits tests to use an ephemeral fake gateway, without exposing a port
 // override or arbitrary URL through the public API.
-export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null } = {}) {
+export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null, liveEnabled = false } = {}) {
   if (typeof integrationToken !== 'string' || integrationToken !== '' && !/^[A-Za-z0-9_-]{32,256}$/.test(integrationToken)) throw new Error('WISER_INTEGRATION_TOKEN must contain 32–256 URL-safe ASCII characters.');
   const integrationDigest = createHash('sha256').update(integrationToken).digest();
   const gatewayKey = active => active.host.replace(/^\[|\]$/g, '');
@@ -92,6 +93,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
   const pending = new Set();
   function reset() {
     generation++;
+    session?.live?.close();
     session = null;
     connecting = false;
     for (const controller of pending) controller.abort();
@@ -310,6 +312,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
           savedConnection = input.remember ? { host: host.replace(/^\[|\]$/g, ''), token } : null;
           credentialError = '';
           session = { host, token, loads: new Map(), draftScope: randomUUID() };
+          startLive(session);
           return reply(200, { connected: true, host, info: sanitize(info, token), draftScope: session.draftScope, remembered: !!savedConnection });
         } finally { if (generation === current) connecting = false; }
       }
@@ -318,6 +321,12 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         && req.headers['x-wiser-intent'] !== 'live') throw new AppError(403, 'Explicit live intent required.');
       if (!session) throw new AppError(409, 'Connect to a gateway first.');
       const active = session;
+      if (req.method === 'GET' && path === '/api/events') {
+        if (req.headers['x-wiser-scope'] !== active.draftScope) throw new AppError(409, 'Connection changed.');
+        if (!active.live) throw new AppError(503, 'Live updates unavailable; use polling.');
+        if (!active.live.subscribe(res)) throw new AppError(503, 'Live update client limit reached.');
+        return;
+      }
       if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
         || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path))
         && req.headers['x-wiser-scope'] !== active.draftScope) throw new AppError(409, 'Connection changed.');
@@ -405,6 +414,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       await gateway(host, saved.token, 'info');
       if (generation !== current) throw new AppError(409, 'Connection cancelled.');
       session = { host, token: saved.token, loads: new Map(), draftScope: randomUUID() };
+      startLive(session);
       credentialError = '';
     } catch (error) {
       if (generation === current) credentialError = 'Saved gateway could not connect. Retry, or forget it and enter a new token.';
@@ -412,6 +422,12 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
     } finally { if (generation === current) connecting = false; }
   }
   server.once('listening', () => { if (savedConnection) void reconnectSaved().catch(() => {}); });
+  function startLive(active) {
+    if (liveEnabled) active.live = createLiveSession({ host: active.host, port: gatewayPort, token: active.token, scope: active.draftScope, handshakeTimeout: timeout });
+  }
+  // End indefinite streams before waiting for HTTP server shutdown.
+  const closeServer = server.close.bind(server);
+  server.close = (...args) => { reset(); return closeServer(...args); };
   server.on('close', () => { reset(); store.close(); });
   return server;
 }
@@ -419,5 +435,5 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
-  createApp({ dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
+  createApp({ liveEnabled: true, dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
 }

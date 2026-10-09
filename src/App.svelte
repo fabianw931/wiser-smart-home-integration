@@ -17,6 +17,12 @@
   let busy = true;
   let disconnecting = false;
   let remembered = false;
+  let liveStatus = 'polling';
+  let stopLive;
+  let liveEpoch = -1;
+  let stateRevision = 0;
+  let livePatches = [];
+  let resyncTimer;
   let stale = true;
   let error = '';
   let notice = 'Checking local session…';
@@ -146,6 +152,33 @@
     clearTimeout(timer);
     if (connected && !demo) timer = setTimeout(refresh, 30000);
   }
+  function ensureLive(current) {
+    if (liveEpoch === current || !connected || demo) return;
+    stopLive?.(); liveEpoch = current;
+    stopLive = api.events(event => {
+      if (current !== epoch || !connected || demo) return;
+      if (event.type === 'status') liveStatus = event.status === 'live' ? 'live' : 'polling';
+      if (event.type === 'load' && loads.some(load => load.id === event.id) && event.state && typeof event.state === 'object') {
+        stateRevision++;
+        livePatches.push({ revision: stateRevision, id: event.id, state: event.state });
+        if (livePatches.length > 1000) livePatches.shift();
+        states = { ...states, [event.id]: { ...states[event.id], ...event.state } };
+        updated = new Date().toLocaleTimeString();
+      }
+      if (event.type === 'resync') {
+        const retryRefresh = () => {
+          if (current !== epoch || !connected || demo) return;
+          if (busy) resyncTimer = setTimeout(retryRefresh, 250);
+          else void refresh();
+        };
+        clearTimeout(resyncTimer); resyncTimer = setTimeout(retryRefresh, 100);
+      }
+    }, changed => {
+      if (current !== epoch) return;
+      liveStatus = 'polling';
+      if (changed) { stale = true; error = 'Gateway session changed. Reconnect this page before controlling devices.'; }
+    });
+  }
   async function operation(action) {
     if (busy) return;
     clearTimeout(timer);
@@ -169,10 +202,13 @@
     if (current !== epoch) return;
     loads = discovered;
     try {
+      const revision = stateRevision;
       const snapshot = await read('loads/state');
       if (!Array.isArray(snapshot) || snapshot.some(item => !item || !Number.isSafeInteger(item.id))) throw new Error('Invalid load state response.');
       if (current !== epoch) return;
       states = Object.fromEntries(snapshot.map(item => [item.id, item.state]));
+      for (const patch of livePatches.filter(item => item.revision > revision)) states[patch.id] = { ...states[patch.id], ...patch.state };
+      livePatches = [];
       updated = new Date().toLocaleTimeString();
       stale = false;
       notice = 'Connected — reported states refreshed.';
@@ -183,6 +219,7 @@
       notice = 'Connected — state unavailable; old readings are stale.';
     }
     if (diagnostics && current === epoch) void refreshDiagnostics(current);
+    ensureLive(current);
   }
   async function refreshDiagnostics(current) {
     if (diagnosticsBusy) return;
@@ -202,6 +239,7 @@
   function refresh() { return operation(current => loadAll(current)); }
   async function connect(payload) {
     demo = false;
+    stopLive?.(); liveEpoch = -1; liveStatus = 'polling'; livePatches = [];
     try {
       await operation(async current => {
         notice = payload.pair ? 'Pairing — press a flashing gateway button within 30 seconds…' : 'Connecting…';
@@ -232,6 +270,7 @@
     });
   }
   async function reconnect() {
+    stopLive?.(); liveEpoch = -1; liveStatus = 'polling'; livePatches = [];
     await operation(async current => {
       const result = await api.request('/api/reconnect', 'POST');
       if (current !== epoch) return;
@@ -242,6 +281,7 @@
     });
   }
   async function disconnect(forget = true) {
+    stopLive?.(); clearTimeout(resyncTimer); liveEpoch = -1; liveStatus = 'polling'; livePatches = [];
     editingLoad = null;
     if (disconnecting) return;
     disconnecting = true;
@@ -292,7 +332,7 @@
       } else notice = session.connecting ? 'A connection is pending in another tab; disconnect to cancel it.' : 'Not connected.';
     });
   });
-  onDestroy(() => { epoch++; clearTimeout(timer); api.cancel(); });
+  onDestroy(() => { epoch++; clearTimeout(timer); clearTimeout(resyncTimer); stopLive?.(); api.cancel(); });
 </script>
 
 <div class="app-shell">
@@ -306,6 +346,7 @@
     <header class="topbar"><div><p class="eyebrow">{demo ? 'Sample home' : 'Your home workspace'}</p><h1>{page === 'Home' ? 'Make yourself at home.' : page === 'Configuration' ? 'A home that feels like yours.' : 'Understand your installation.'}</h1><p>{page === 'Home' ? 'Lights, blinds, and the details that make a room.' : page === 'Configuration' ? 'Plan names and room assignments in your browser first.' : 'Reported resources from your gateway, read only.'}</p></div><span class="badge">{demo ? 'Sample home' : connected ? 'Gateway connected' : 'Local workspace'}</span></header>
     <div class="mode-banner" role="note"><div><strong>{demo ? 'Sample home · no gateway connected' : 'Personal configuration · local database'}</strong><p>{demo ? 'Explore the workspace using simulated lights and blinds.' : 'Names, rooms, and notes are saved in SQLite on this computer. Light and blind controls operate your devices normally.'}</p></div></div>
     {#if remembered}<div class="command-notice">Gateway remembered securely on this computer. {#if connected}<button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={() => disconnect(false)}>Disconnect for now</button>{:else}<button class="btn btn-sm btn-outline" disabled={busy} onclick={reconnect}>Reconnect saved gateway</button>{/if}</div>{/if}
+    {#if connected && !demo}<p class="muted text-xs" aria-live="polite">Updates: {liveStatus === 'live' ? 'Live · gateway push connected' : 'Polling · refreshes every 30 seconds'}</p>{/if}
     <section class="status-strip" aria-label="Connection status"><div><p role="status">{notice}</p><p class="muted text-xs">{updated ? `Last successful state update: ${updated}` : demo ? 'Sample values — not gateway readings.' : 'No reported state snapshot yet.'} {stale && connected ? 'Readings are stale or unavailable.' : ''}</p></div><div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-outline" disabled={busy || !connected || demo} onclick={refresh}>Refresh now</button><button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={() => disconnect(true)}>Disconnect & forget credentials</button></div></section>
     {#if error}<p class="alert alert-error" role="alert">{error}</p>{/if}
     {#if commandNotice}<p class="command-notice" role="status">{commandNotice}</p>{/if}

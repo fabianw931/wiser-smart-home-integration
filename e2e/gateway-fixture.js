@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test as base, expect } from '@playwright/test';
 import { createApp } from '../server.js';
+import { WebSocketServer } from 'ws';
 
 const listen = server => new Promise((resolve, reject) => {
   server.once('error', reject);
@@ -17,7 +18,8 @@ const close = server => new Promise(resolve => {
 
 // Everything stays on loopback; these tests never discover or control real hardware.
 export const test = base.extend({
-  gateway: async ({}, use) => {
+  liveUpdates: [false, { option: true }],
+  gateway: async ({ liveUpdates }, use) => {
     const loads = [
       { id: 1, type: 'onoff', name: 'Hall light', room: 1, device: 'fake-1', channel: 0, unused: false },
       { id: 2, type: 'dim', name: 'Desk light', device: 'fake-2', channel: 0, unused: false },
@@ -90,12 +92,20 @@ export const test = base.extend({
       if (['/api/devices', '/api/hvacgroups', '/api/hvacgroups/state'].includes(req.url)) return success([]);
       return reply(404, { status: 'error', message: 'Unsupported fixture resource' });
     });
+    const sockets = liveUpdates ? new WebSocketServer({ server: fake, path: '/api' }) : null;
+    control.pushState = (id, patch) => {
+      states.set(id, { ...states.get(id), ...patch });
+      for (const socket of sockets?.clients || []) socket.send(JSON.stringify({ load: { id, state: patch } }));
+    };
+    control.dropLive = () => { for (const socket of sockets?.clients || []) socket.terminate(); };
     const port = await listen(fake);
-    const app = createApp({ gatewayPort: port, timeout: 10000, credentialDir: join(mkdtempSync(join(tmpdir(), 'wiser-browser-')), 'credentials') });
+    const app = createApp({ gatewayPort: port, timeout: 10000, liveEnabled: liveUpdates, credentialDir: join(mkdtempSync(join(tmpdir(), 'wiser-browser-')), 'credentials') });
     try {
       const appPort = await listen(app);
       await use({ ...control, control, url: `http://127.0.0.1:${appPort}` });
     } finally {
+      for (const socket of sockets?.clients || []) socket.terminate();
+      sockets?.close();
       await close(app);
       await close(fake);
     }
