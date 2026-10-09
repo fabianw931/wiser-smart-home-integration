@@ -1,4 +1,7 @@
 import http from 'node:http';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test as base, expect } from '@playwright/test';
 import { createApp } from '../server.js';
 
@@ -88,7 +91,7 @@ export const test = base.extend({
       return reply(404, { status: 'error', message: 'Unsupported fixture resource' });
     });
     const port = await listen(fake);
-    const app = createApp({ gatewayPort: port, timeout: 10000 });
+    const app = createApp({ gatewayPort: port, timeout: 10000, credentialDir: join(mkdtempSync(join(tmpdir(), 'wiser-browser-')), 'credentials') });
     try {
       const appPort = await listen(app);
       await use({ ...control, control, url: `http://127.0.0.1:${appPort}` });

@@ -29,7 +29,7 @@ The current milestone extends the Svelte dashboard with personal configuration a
 - Separate gateway metadata editor for names and existing-room assignments. Explicit review and confirmation, expected-value and identity checks, and stale-session protection.
 - Offline sample home with simulated controls, clearly separated from actual gateway data.
 - Sequential core refresh, independent background diagnostics, and 30-second polling. Missing or invalid readings disable the affected controls.
-- Credentials held only in server memory; browser forms clear tokens. Localhost binding, Host/Origin checks, fixed endpoints, redaction, cancellation handling, and session-scoped writes remain in place.
+- Credentials held in server memory by default, with opt-in AES-256-GCM file storage and startup reconnect; browser forms clear tokens. Localhost binding, Host/Origin checks, fixed endpoints, redaction, cancellation handling, and session-scoped writes remain in place.
 
 ## Run
 
@@ -46,8 +46,8 @@ Open http://127.0.0.1:3000. Use **Explore sample home** for a disconnected demon
 
 - Svelte checks: zero errors and warnings.
 - Production build: passed.
-- Node tests: 44 passed (37 backend, 3 SQLite, 4 mapping tests).
-- Browser tests: 21 passed using installed Chrome and a simulated gateway, including dashboard grouping/editing, migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
+- Node tests: 52 passed (39 backend, 6 credential-store, 3 SQLite, 4 mapping tests).
+- Browser tests: 22 passed using installed Chrome and a simulated gateway, including dashboard grouping/editing, migration, persistence, failed-save recovery, theme switching, storage failures, and dark desktop/mobile workflows.
 - Screenshots: desktop and 375px mobile layouts generated and reviewed.
 - Physical gateway: not tested.
 

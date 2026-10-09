@@ -4,10 +4,11 @@
   export let onconnect;
   let mode = 'token';
   let token = '';
+  let remember = false;
 
   function submit(event) {
     event.preventDefault();
-    const payload = { host: host.trim(), pair: mode === 'pair' };
+    const payload = { host: host.trim(), pair: mode === 'pair', remember };
     if (mode === 'token') payload.token = token;
     token = '';
     onconnect(payload);
@@ -35,6 +36,8 @@
             Pair new client
           </label>
         </div>
+        <label class="flex items-center gap-2"><input class="checkbox checkbox-sm" type="checkbox" bind:checked={remember} />Remember this gateway on this computer</label>
+        <p class="muted text-xs">Opt in to encrypted local storage and reconnect on server startup. Connecting without this option replaces any saved connection with a temporary one.</p>
         {#if mode === 'token'}
           <label class="fieldset">
             <span class="fieldset-legend">Gateway token</span>
@@ -47,6 +50,6 @@
         {/if}
       </fieldset>
     </form>
-    <p class="text-sm text-base-content/70">Tokens stay in server memory only. All tabs share one connection. Closing this page does not forget an established token; disconnect when finished.</p>
+    <p class="text-sm text-base-content/70">Tokens never go into browser storage or SQLite. Remembered credentials use encrypted files with an owner-only key. Software running as your user can still access them. All tabs share one connection.</p>
   </div>
 </section>

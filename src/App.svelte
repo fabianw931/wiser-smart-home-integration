@@ -16,6 +16,7 @@
   let connected = false;
   let busy = true;
   let disconnecting = false;
+  let remembered = false;
   let stale = true;
   let error = '';
   let notice = 'Checking local session…';
@@ -208,6 +209,7 @@
         const result = await api.request('/api/connect', 'POST', payload);
         if (current !== epoch) return;
         connected = result.connected;
+        remembered = result.remembered;
         host = result.host.replace(/^\[|\]$/g, '');
         await restoreLocal(host);
         if (current !== epoch) return;
@@ -229,7 +231,17 @@
       await loadAll(current, false);
     });
   }
-  async function disconnect() {
+  async function reconnect() {
+    await operation(async current => {
+      const result = await api.request('/api/reconnect', 'POST');
+      if (current !== epoch) return;
+      connected = true; demo = false; remembered = true;
+      host = result.host.replace(/^\[|\]$/g, '');
+      await restoreLocal(host);
+      if (current === epoch) await loadAll(current);
+    });
+  }
+  async function disconnect(forget = true) {
     editingLoad = null;
     if (disconnecting) return;
     disconnecting = true;
@@ -249,19 +261,29 @@
     commandNotice = '';
     error = '';
     try {
-      await api.request('/api/disconnect', 'POST');
-      notice = 'Disconnected — server credentials forgotten.';
+      await api.request(forget ? '/api/disconnect' : '/api/disconnect-session', 'POST');
+      if (forget) remembered = false;
+      notice = forget ? 'Disconnected — server credentials forgotten.' : 'Disconnected for now. Saved credentials kept; reconnect manually or restart the server.';
     } catch {
       notice = 'Polling stopped.';
-      error = 'Could not confirm disconnect. Stop the Node server to ensure credentials are forgotten.';
+      error = 'Could not confirm disconnect or credential removal. Saved credentials may remain on disk; check server permissions before restarting.';
     } finally { busy = false; disconnecting = false; }
   }
   onMount(() => {
     busy = false;
     operation(async current => {
-      const session = await api.request('/api/session');
+      let session = await api.request('/api/session');
+      while (session.connecting && current === epoch) {
+        notice = 'Connecting — waiting for gateway…';
+        await new Promise(resolve => setTimeout(resolve, 300));
+        if (current !== epoch) return;
+        session = await api.request('/api/session');
+      }
       if (current !== epoch) return;
       connected = session.connected;
+      remembered = session.remembered;
+      if (session.host) host = session.host.replace(/^\[|\]$/g, '');
+      if (session.credentialError) error = session.credentialError;
       if (connected) {
         host = session.host.replace(/^\[|\]$/g, '');
         await restoreLocal(host);
@@ -283,7 +305,8 @@
   <main class="main-content">
     <header class="topbar"><div><p class="eyebrow">{demo ? 'Sample home' : 'Your home workspace'}</p><h1>{page === 'Home' ? 'Make yourself at home.' : page === 'Configuration' ? 'A home that feels like yours.' : 'Understand your installation.'}</h1><p>{page === 'Home' ? 'Lights, blinds, and the details that make a room.' : page === 'Configuration' ? 'Plan names and room assignments in your browser first.' : 'Reported resources from your gateway, read only.'}</p></div><span class="badge">{demo ? 'Sample home' : connected ? 'Gateway connected' : 'Local workspace'}</span></header>
     <div class="mode-banner" role="note"><div><strong>{demo ? 'Sample home · no gateway connected' : 'Personal configuration · local database'}</strong><p>{demo ? 'Explore the workspace using simulated lights and blinds.' : 'Names, rooms, and notes are saved in SQLite on this computer. Light and blind controls operate your devices normally.'}</p></div></div>
-    <section class="status-strip" aria-label="Connection status"><div><p role="status">{notice}</p><p class="muted text-xs">{updated ? `Last successful state update: ${updated}` : demo ? 'Sample values — not gateway readings.' : 'No reported state snapshot yet.'} {stale && connected ? 'Readings are stale or unavailable.' : ''}</p></div><div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-outline" disabled={busy || !connected || demo} onclick={refresh}>Refresh now</button><button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={disconnect}>Disconnect & forget credentials</button></div></section>
+    {#if remembered}<div class="command-notice">Gateway remembered securely on this computer. {#if connected}<button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={() => disconnect(false)}>Disconnect for now</button>{:else}<button class="btn btn-sm btn-outline" disabled={busy} onclick={reconnect}>Reconnect saved gateway</button>{/if}</div>{/if}
+    <section class="status-strip" aria-label="Connection status"><div><p role="status">{notice}</p><p class="muted text-xs">{updated ? `Last successful state update: ${updated}` : demo ? 'Sample values — not gateway readings.' : 'No reported state snapshot yet.'} {stale && connected ? 'Readings are stale or unavailable.' : ''}</p></div><div class="flex flex-wrap gap-2"><button class="btn btn-sm btn-outline" disabled={busy || !connected || demo} onclick={refresh}>Refresh now</button><button class="btn btn-sm btn-ghost" disabled={disconnecting} onclick={() => disconnect(true)}>Disconnect & forget credentials</button></div></section>
     {#if error}<p class="alert alert-error" role="alert">{error}</p>{/if}
     {#if commandNotice}<p class="command-notice" role="status">{commandNotice}</p>{/if}
     {#if storageNotice}<p class="alert alert-warning" role="alert">{storageNotice}</p>{/if}

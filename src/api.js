@@ -19,8 +19,8 @@ export function createApi() {
           error.status = response.status;
           throw error;
         }
-        if (path === '/api/connect' || path === '/api/session') draftScope = result.draftScope || null;
-        if (path === '/api/disconnect') draftScope = null;
+        if (['/api/connect', '/api/session', '/api/reconnect'].includes(path)) draftScope = result.draftScope || null;
+        if (['/api/disconnect', '/api/disconnect-session'].includes(path)) draftScope = null;
         return result;
       } catch (error) {
         if (error.name === 'AbortError') throw new Error('Request timed out or was cancelled.');

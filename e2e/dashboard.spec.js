@@ -1,5 +1,25 @@
 import { test, expect } from './gateway-fixture.js';
 
+test('remembered connection can disconnect temporarily, reconnect and be forgotten', async ({ page, gateway }) => {
+  await page.goto(gateway.url);
+  await page.getByLabel(/Gateway IP or hostname/).fill('127.0.0.1');
+  await page.getByLabel('Gateway token').fill(gateway.token);
+  await page.getByLabel('Remember this gateway on this computer').check();
+  await page.getByRole('button', { name: 'Connect', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Refresh now' })).toBeEnabled();
+  await expect(page.getByText('Gateway remembered securely on this computer.')).toBeVisible();
+  await page.getByRole('button', { name: 'Disconnect for now', exact: true }).click();
+  await page.getByRole('button', { name: 'Reconnect saved gateway' }).click();
+  await expect(page.getByRole('article', { name: 'Hall light', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => [localStorage.length, sessionStorage.length])).toEqual([0, 0]);
+  expect(await page.content()).not.toContain(gateway.token);
+  await page.getByRole('button', { name: 'Disconnect & forget credentials' }).click();
+  await expect(page.getByRole('button', { name: 'Reconnect saved gateway' })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+  expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
+});
+
 test('dashboard groups devices and edits personal details without gateway changes', async ({ page, gateway }) => {
   await connect(page, gateway);
   await expect(page.getByLabel('Group devices by')).toHaveValue('room');

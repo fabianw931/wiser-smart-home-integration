@@ -6,7 +6,7 @@ import { validateMappings } from './src/mappings.js';
 
 export const DEFAULT_DB_PATH = fileURLToPath(new URL('./data/wiser.sqlite', import.meta.url));
 
-// Only personal annotations belong here. Gateway credentials and responses stay in memory.
+// Only personal annotations belong here. Credentials use a separate opt-in encrypted store.
 export function createMappingStore(dbPath = ':memory:') {
   const path = dbPath === ':memory:' ? dbPath : resolve(dbPath);
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });

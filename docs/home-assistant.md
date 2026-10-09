@@ -19,7 +19,7 @@ The implemented first milestone is a versioned machine API and an example HA pac
 
 The API is disabled unless `WISER_INTEGRATION_TOKEN` is supplied at server startup. Use a separate random integration credential, not the gateway token. It must be 32–256 URL-safe token characters. Supply it through your service's secret environment; never commit it. Restarting with a replacement token revokes the old one. `WISER_INTEGRATION_CONTROL=1` separately enables target commands; omit it initially.
 
-The app still binds only to `127.0.0.1`. Authenticate with `Authorization: Bearer <integration-token>`. The integration token is not stored in SQLite or returned to the browser. Connect the app to the gateway normally before requesting snapshots. Restarting the app forgets the gateway connection, so unattended restart recovery is not yet implemented.
+The app still binds only to `127.0.0.1`. Authenticate with `Authorization: Bearer <integration-token>`. The integration token is not stored in SQLite or returned to the browser. Connect the app to the gateway normally before requesting snapshots. Opt-in [remembered connections](remembered-connection.md) reconnect once on server startup; a failed attempt requires a manual retry. A continuously supervised connection lifecycle is not yet implemented.
 
 **Do not expose the current app port to your LAN or Internet.** Its browser endpoints are still an unauthenticated local workspace. Adding a machine token does not secure those endpoints. A dedicated authenticated listener or authenticated route-isolating deployment needs separate design before remote access. In HA OS or a container, `127.0.0.1` refers to HA's own network namespace, not your laptop.
 

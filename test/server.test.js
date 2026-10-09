@@ -265,7 +265,7 @@ test('pairing uses unique usernames and never returns secrets', async t => {
   const claims = f.calls.filter(call => call.path === '/api/account/claim');
   assert.notEqual(claims[0].payload.user, claims[1].payload.user);
   const session = await f.request('/api/session');
-  assert.deepEqual(session.body, { connected: true, host: '127.0.0.1', connecting: false, draftScope: session.body.draftScope });
+  assert.deepEqual(session.body, { connected: true, host: '127.0.0.1', connecting: false, draftScope: session.body.draftScope, remembered: false, credentialError: '' });
   assert.equal(session.headers.get('cache-control'), 'no-store');
 });
 
@@ -330,7 +330,7 @@ test('concurrent connects reject the second attempt, and disconnect permits a re
   try {
     const first = f.connect();
     await firstInfo;
-    assert.deepEqual((await f.request('/api/session')).body, { connected: false, host: null, connecting: true, draftScope: null });
+    assert.deepEqual((await f.request('/api/session')).body, { connected: false, host: null, connecting: true, draftScope: null, remembered: false, credentialError: '' });
     assert.equal((await f.connect()).status, 409);
     assert.equal(infoCount, 1, 'rejected connect must not call the gateway');
     assert.equal((await f.request('/api/disconnect', 'POST')).status, 200);
@@ -338,7 +338,7 @@ test('concurrent connects reject the second attempt, and disconnect permits a re
     assert.equal(replacement.status, 200);
     release();
     assert.equal((await first).status, 502);
-    assert.deepEqual((await f.request('/api/session')).body, { connected: true, host: '127.0.0.1', connecting: false, draftScope: replacement.body.draftScope });
+    assert.deepEqual((await f.request('/api/session')).body, { connected: true, host: '127.0.0.1', connecting: false, draftScope: replacement.body.draftScope, remembered: false, credentialError: '' });
   } finally {
     release();
   }
@@ -532,6 +532,49 @@ test('normal response closure preserves an established connection', async t => {
 const integrationToken = 'test-integration-token-01234567890';
 const machineHeaders = { 'X-Wiser-Client': undefined, Authorization: `Bearer ${integrationToken}` };
 const snapshotPath = '/api/integration/v1/snapshot';
+
+test('remembered gateway reconnects after restart and forget prevents future reconnect', async t => {
+  const credentialDir = join(mkdtempSync(join(tmpdir(), 'wiser-remember-')), 'credentials');
+  const f = await fixture(t, { credentialDir });
+  const saved = await f.request('/api/connect', 'POST', { host: '127.0.0.1', token: 'fake-secret', pair: false, remember: true });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.remembered, true);
+  await f.request('/api/disconnect-session', 'POST');
+  assert.equal((await f.request('/api/session')).body.remembered, true);
+  assert.equal((await f.request('/api/reconnect', 'POST')).status, 200);
+  assert.ok(!JSON.stringify((await f.request('/api/session')).body).includes('fake-secret'));
+  // A second app instance reads the same encrypted store; all gateways here are fake.
+  const second = await fixture(t, { credentialDir });
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const status = (await second.request('/api/session')).body;
+    if (!status.connecting) { assert.equal(status.connected, true); break; }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.equal((await second.request('/api/session')).body.connected, true);
+  assert.equal(second.calls.some(call => call.method !== 'GET'), false);
+  await second.request('/api/disconnect', 'POST');
+  assert.equal((await second.request('/api/session')).body.remembered, false);
+  const third = await fixture(t, { credentialDir });
+  assert.equal((await third.request('/api/session')).body.connected, false);
+  assert.equal(third.calls.length, 0);
+});
+
+test('invalid credentials are never remembered and failed startup keeps retry possible', async t => {
+  const credentialDir = join(mkdtempSync(join(tmpdir(), 'wiser-failed-remember-')), 'credentials');
+  const f = await fixture(t, { credentialDir });
+  f.setMode('http-401');
+  assert.equal((await f.request('/api/connect', 'POST', { host: '127.0.0.1', token: 'fake-secret', pair: false, remember: true })).status, 401);
+  assert.equal((await f.request('/api/session')).body.remembered, false);
+  f.setMode('');
+  await f.request('/api/connect', 'POST', { host: '127.0.0.1', token: 'fake-secret', pair: false, remember: true });
+  const second = await fixture(t, { credentialDir, onGateway(req, res) { res.writeHead(401); res.end(); return true; } });
+  for (let attempt = 0; attempt < 50 && (await second.request('/api/session')).body.connecting; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  const status = (await second.request('/api/session')).body;
+  assert.equal(status.connected, false);
+  assert.equal(status.remembered, true);
+  assert.match(status.credentialError, /could not connect/);
+  assert.equal(second.calls.some(call => call.method !== 'GET'), false);
+});
 
 test('integration is opt-in, validates credentials, and retains local request protections', async t => {
   for (const token of ['short', 'x'.repeat(257), 'x'.repeat(32) + '\n', 'x'.repeat(32) + '+', null]) assert.throws(() => createApp({ integrationToken: token }));

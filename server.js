@@ -2,9 +2,10 @@ import http from 'node:http';
 import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createMappingStore, DEFAULT_DB_PATH } from './storage.js';
 import { validateMappings, mappingMatches } from './src/mappings.js';
+import { createCredentialStore } from './credentials.js';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
   'sensors', 'hvacgroups', 'hvacgroups/state']);
@@ -72,7 +73,7 @@ async function body(req, limit = 8192) {
 
 // Factory permits tests to use an ephemeral fake gateway, without exposing a port
 // override or arbitrary URL through the public API.
-export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false } = {}) {
+export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null } = {}) {
   if (typeof integrationToken !== 'string' || integrationToken !== '' && !/^[A-Za-z0-9_-]{32,256}$/.test(integrationToken)) throw new Error('WISER_INTEGRATION_TOKEN must contain 32–256 URL-safe ASCII characters.');
   const integrationDigest = createHash('sha256').update(integrationToken).digest();
   const gatewayKey = active => active.host.replace(/^\[|\]$/g, '');
@@ -80,6 +81,11 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
     gatewayKey(active), load.device ?? null, load.channel ?? null, load.type ?? null, load.sub_type ?? null, load.id,
   ])).digest('hex');
   const store = createMappingStore(dbPath);
+  const credentials = credentialDir ? createCredentialStore(credentialDir) : null;
+  let savedConnection = null;
+  let credentialError = '';
+  try { savedConnection = credentials?.load() || null; }
+  catch { credentialError = 'Saved credentials could not be unlocked. Check credential files and permissions.'; }
   let session = null;
   let generation = 0;
   let connecting = false;
@@ -248,9 +254,18 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         } else throw new AppError(404, 'Endpoint not allowed.');
         return reply(200, { data: store.list(gatewayKey) });
       }
-      if (req.method === 'GET' && path === '/api/session') return reply(200, { connected: !!session, host: session?.host || null, connecting, draftScope: session?.draftScope || null });
-      if (req.method === 'POST' && path === '/api/disconnect') {
+      if (req.method === 'GET' && path === '/api/session') return reply(200, { connected: !!session, host: session?.host || savedConnection?.host || null, connecting, draftScope: session?.draftScope || null, remembered: !!savedConnection, credentialError });
+      if (req.method === 'POST' && path === '/api/reconnect') {
+        await reconnectSaved();
+        return reply(200, { connected: true, host: session.host, draftScope: session.draftScope, remembered: true });
+      }
+      if (req.method === 'POST' && ['/api/disconnect', '/api/disconnect-session'].includes(path)) {
         reset();
+        if (path === '/api/disconnect') {
+          try { credentials?.forget(); }
+          catch { throw new AppError(500, 'Disconnected, but saved credentials could not be forgotten. Check file permissions before restarting.'); }
+          savedConnection = null; credentialError = '';
+        }
         return reply(200, { connected: false });
       }
       if (req.method === 'POST' && path === '/api/connect') {
@@ -271,7 +286,9 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         try {
           const input = await body(req);
           if (generation !== current || req.aborted || res.destroyed) throw new AppError(409, 'Connection cancelled.');
-          keys(input, ['host', 'token', 'pair']);
+          keys(input, ['host', 'token', 'pair', 'remember']);
+          if (input.remember !== undefined && typeof input.remember !== 'boolean') invalid('Remember must be a boolean.');
+          if (input.remember && !credentials) throw new AppError(503, 'Credential storage is not configured.');
           const host = validateHost(input.host);
           if (typeof input.pair !== 'boolean') invalid('Choose token or pairing mode.');
           if (input.pair ? input.token !== undefined : typeof input.token !== 'string' || !/^[\x21-\x7e]{1,2048}$/.test(input.token)) invalid('Supply a valid token or choose pairing, not both.');
@@ -286,8 +303,14 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
           }
           const info = await gateway(host, token, 'info');
           if (generation !== current || req.aborted || res.destroyed) throw new AppError(409, 'Connection cancelled.');
+          try {
+            if (input.remember) credentials.save({ host: host.replace(/^\[|\]$/g, ''), token });
+            else credentials?.forget();
+          } catch { throw new AppError(500, 'Could not update saved credentials. Check credential file permissions.'); }
+          savedConnection = input.remember ? { host: host.replace(/^\[|\]$/g, ''), token } : null;
+          credentialError = '';
           session = { host, token, loads: new Map(), draftScope: randomUUID() };
-          return reply(200, { connected: true, host, info: sanitize(info, token), draftScope: session.draftScope });
+          return reply(200, { connected: true, host, info: sanitize(info, token), draftScope: session.draftScope, remembered: !!savedConnection });
         } finally { if (generation === current) connecting = false; }
       }
       if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
@@ -370,6 +393,25 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         { error: error instanceof AppError ? error.message : 'Local server error.' });
     }
   });
+  async function reconnectSaved() {
+    if (connecting) throw new AppError(409, 'Connection already in progress.');
+    if (!savedConnection) throw new AppError(409, 'No saved gateway connection.');
+    reset();
+    const current = generation;
+    const saved = savedConnection;
+    connecting = true;
+    try {
+      const host = validateHost(saved.host);
+      await gateway(host, saved.token, 'info');
+      if (generation !== current) throw new AppError(409, 'Connection cancelled.');
+      session = { host, token: saved.token, loads: new Map(), draftScope: randomUUID() };
+      credentialError = '';
+    } catch (error) {
+      if (generation === current) credentialError = 'Saved gateway could not connect. Retry, or forget it and enter a new token.';
+      throw error;
+    } finally { if (generation === current) connecting = false; }
+  }
+  server.once('listening', () => { if (savedConnection) void reconnectSaved().catch(() => {}); });
   server.on('close', () => { reset(); store.close(); });
   return server;
 }
@@ -377,5 +419,5 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
-  createApp({ dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
+  createApp({ dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
 }

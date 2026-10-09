@@ -41,7 +41,7 @@ Diagnostics exposes fixed, read-only resource collections: info, rooms, devices,
 
 This app has no user login and stays bound to localhost. Do not expose, forward, or reverse-proxy its port. All tabs share the backend gateway session; a stale tab cannot write to a replacement session.
 
-Tokens stay in server memory and are not persisted or included in exported mappings. Closing a tab does not clear the token. Disconnect clears local server credentials but does not revoke the gateway account. Pairing creates an account; cancelling cannot guarantee that an already created account is undone.
+Tokens stay in server memory by default. Opt-in [remembered connections](remembered-connection.md) use encrypted local files and reconnect on startup. Tokens are never included in exported mappings. Closing a tab does not clear the token. Disconnect for now keeps saved credentials; Disconnect & forget credentials clears them without revoking the gateway account. Pairing creates an account; cancelling cannot guarantee that an already created account is undone.
 
 Gateway traffic uses unencrypted HTTP. Prefer a known gateway IP on a trusted network. No DNS pinning or LAN interception protection is claimed.
 
