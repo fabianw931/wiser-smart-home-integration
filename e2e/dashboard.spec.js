@@ -557,7 +557,7 @@ test('whole-home lights action switches lit lights only after an explicit click'
   expect(puts(gateway)).toEqual([]);
   await page.getByRole('group', { name: 'Whole-home actions' }).getByRole('button', { name: 'Lights off (all)' }).click();
   await expect(page.getByTestId('overview')).toContainText('0 of 6 lights on');
-  expect(puts(gateway).map(call => call.path)).toEqual([2, 6, 7, 8].map(id => `/api/loads/${id}/target_state`));
+  expect(puts(gateway).map(call => call.path).sort()).toEqual([2, 6, 7, 8].map(id => `/api/loads/${id}/target_state`).sort());
 });
 
 test('floors are created in settings, filter Home and persist in the database', async ({ page, browser, gateway }) => {

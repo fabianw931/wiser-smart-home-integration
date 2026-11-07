@@ -6,6 +6,8 @@ import { decorate, buildHome, actionTargets, loadName, ACTIONS } from './home.js
 
 export const RESOURCE_NAMES = ['info', 'rooms', 'buttons', 'sensors', 'westgroups', 'smartbuttons', 'devices', 'hvacgroups', 'hvacgroups/state'];
 const POLL_MS = 30000;
+// Lights in a quick action are sent in small parallel groups; blinds stay one at a time because motors start together otherwise.
+const LIGHT_PARALLEL = 4;
 const bare = host => host.replace(/^\[|\]$/g, '');
 const emptyLayout = () => ({ floors: [], favorites: { loads: [], rooms: [] } });
 
@@ -362,11 +364,16 @@ export class Dashboard {
       this.commandNotice = '';
       const failed = [];
       let accepted = 0;
-      for (const load of targets) {
-        if (current !== this.epoch) return;
-        try { await this.#api.request(`/api/loads/${load.id}/target_state`, 'PUT', { [spec.field]: spec.value }, true); accepted++; }
-        catch { failed.push(loadName(load)); }
-      }
+      const queue = [...targets];
+      const worker = async () => {
+        while (queue.length && current === this.epoch) {
+          const load = queue.shift();
+          try { await this.#api.request(`/api/loads/${load.id}/target_state`, 'PUT', { [spec.field]: spec.value }, true); accepted++; }
+          catch { failed.push(loadName(load)); }
+        }
+      };
+      const width = spec.kind === 'light' ? Math.min(LIGHT_PARALLEL, targets.length) : 1;
+      await Promise.all(Array.from({ length: width }, worker));
       if (current !== this.epoch) return;
       this.commandNotice = `${spec.label}: targets accepted for ${accepted} of ${targets.length}. Check the reported states; acceptance is not confirmation of movement.`;
       if (failed.length) this.error = `Not sent to: ${failed.join(', ')}.`;
