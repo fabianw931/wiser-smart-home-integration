@@ -27,6 +27,15 @@ if aiohttp is not None:
 
 
 class AdapterTest(unittest.TestCase):
+    def test_labels_prefer_personal_names_and_keep_gateway_originals(self):
+        found = model.labels({"id": 4, "name": " Reading lamp ", "room": "Study", "gateway_name": "Load 4", "gateway_room": "Room 2"})
+        self.assertEqual(found, {"name": "Reading lamp", "room": "Study", "gateway_name": "Load 4", "gateway_room": "Room 2"})
+        # An older snapshot without gateway_* still yields a usable name.
+        self.assertEqual(model.labels({"id": 5, "name": "Hall"})["gateway_name"], None)
+        self.assertEqual(model.labels({"id": 6, "name": "  ", "gateway_name": "Original"})["name"], "Original")
+        self.assertEqual(model.labels({"id": 7, "name": None, "room": ""})["name"], "Wiser load 7")
+        self.assertIsNone(model.labels({"id": 7, "room": ""})["room"])
+
     def test_brightness_endpoints_and_nonzero(self):
         self.assertEqual([model.brightness(x) for x in (0, 1, 5000, 10000)], [0, 1, 128, 255])
         self.assertEqual(model.target_brightness(255), 10000)

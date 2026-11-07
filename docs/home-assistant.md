@@ -38,6 +38,8 @@ The app still binds only to `127.0.0.1`. Authenticate with `Authorization: Beare
     "identity": "opaque-physical-identity-hash",
     "name": "Entrance pendant",
     "room": "Entrance",
+    "gateway_name": "Load 1",
+    "gateway_room": "Room 2",
     "type": "dim",
     "sub_type": null,
     "unused": false,
@@ -46,7 +48,7 @@ The app still binds only to `127.0.0.1`. Authenticate with `Authorization: Beare
 }
 ```
 
-Personal labels override gateway labels only when the saved physical identity matches. Notes and raw gateway responses are excluded. `identity` is independent of display names but includes the gateway address and physical load identity; keep the same gateway address rather than switching IP/hostname aliases. Unknown or missing state must not be treated as zero/off. `observed_at` is the snapshot acquisition time, not proof of physical response or a per-device last-seen timestamp.
+Personal labels override gateway labels only when the saved physical identity matches; `gateway_name` and `gateway_room` always carry what the gateway itself reports. Notes and raw gateway responses are excluded. `identity` is independent of display names but includes the gateway address and physical load identity; keep the same gateway address rather than switching IP/hostname aliases. Unknown or missing state must not be treated as zero/off. `observed_at` is the snapshot acquisition time, not proof of physical response or a per-device last-seen timestamp.
 
 With controls explicitly enabled, `PUT /api/integration/v1/loads/1/target` accepts:
 

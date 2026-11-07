@@ -79,3 +79,12 @@ def snapshot(value):
             raise ValueError("Invalid entity identity")
         ids.add(entity["id"])
     return value
+
+
+def labels(entity):
+    """Display name and room are the user's own; the gateway's originals stay secondary."""
+    def text(key):
+        value = entity.get(key)
+        return value.strip() if isinstance(value, str) and value.strip() else None
+    name = text("name") or text("gateway_name") or f"Wiser load {entity.get('id')}"
+    return {"name": name, "room": text("room"), "gateway_name": text("gateway_name"), "gateway_room": text("gateway_room")}

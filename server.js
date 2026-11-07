@@ -208,9 +208,13 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
             const safeState = object(state) ? Object.fromEntries(Object.entries(ranges)
               .filter(([field, [min, max]]) => Number.isSafeInteger(state[field]) && state[field] >= min && state[field] <= max)
               .map(([field]) => [field, state[field]])) : {};
+            const gatewayName = typeof load.name === 'string' ? load.name : null;
+            const gatewayRoom = rooms.find(room => room.id === load.room)?.name;
             return { id: load.id, identity: loadIdentity(active, load),
-              name: mapping?.name ?? (typeof load.name === 'string' ? load.name : null),
-              room: mapping?.room ?? (typeof rooms.find(room => room.id === load.room)?.name === 'string' ? rooms.find(room => room.id === load.room).name : null),
+              name: mapping?.name ?? gatewayName,
+              room: mapping?.room ?? (typeof gatewayRoom === 'string' ? gatewayRoom : null),
+              // What the gateway itself calls this load, kept so Home Assistant can show it as a secondary property.
+              gateway_name: gatewayName, gateway_room: typeof gatewayRoom === 'string' ? gatewayRoom : null,
               type: typeof load.type === 'string' ? load.type : null, sub_type: typeof load.sub_type === 'string' ? load.sub_type : null,
               unused: !!load.unused, state: safeState };
           });

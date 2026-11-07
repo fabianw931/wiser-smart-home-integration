@@ -652,6 +652,9 @@ test('snapshot merges matching personal labels, exposes safe fields, and does no
   const second = (await f.request(snapshotPath, 'GET', undefined, machineHeaders)).body;
   assert.equal(second.entities[0].name, 'Personal');
   assert.equal(second.entities[0].room, 'Personal room');
+  assert.equal(second.entities[0].gateway_room, 'Office');
+  assert.equal(second.entities[0].gateway_name, first.body.entities[0].gateway_name);
+  assert.notEqual(second.entities[0].gateway_name, 'Personal');
   assert.equal(second.entities[0].identity, first.body.entities[0].identity);
   assert.ok(!JSON.stringify(second).includes('hidden'));
   await f.request('/api/local/mappings/1?gateway=127.0.0.1', 'PUT', { identity: '[1,3,2,"dim"]', name: 'Unassigned', room: '', notes: '' });

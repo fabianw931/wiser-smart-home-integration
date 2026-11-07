@@ -1,6 +1,8 @@
 """Entities retain their original physical identity for their lifetime."""
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN
+from .model import labels
 
 
 class WorkspaceEntity(CoordinatorEntity):
@@ -9,12 +11,16 @@ class WorkspaceEntity(CoordinatorEntity):
         self.load_id = entity["id"]
         self.identity = entity["identity"]
         self._attr_unique_id = f"{DOMAIN}_{self.identity}"
-        self._attr_name = entity.get("name") or f"Wiser load {self.load_id}"
+        first = labels(entity)
+        self._attr_name = first["name"]
+        # One device per load. The personal room becomes the suggested area only when the device is first created.
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, self.identity)}, name=first["name"], manufacturer="Feller",
+                                            model=entity.get("type"), suggested_area=first["room"])
 
     @property
     def name(self):
         entity = self.current
-        return entity.get("name") or self._attr_name if entity else self._attr_name
+        return labels(entity)["name"] if entity else self._attr_name
 
     @property
     def current(self):
@@ -31,4 +37,8 @@ class WorkspaceEntity(CoordinatorEntity):
     @property
     def extra_state_attributes(self):
         entity = self.current
-        return {"wiser_room": entity.get("room")} if entity else {}
+        if not entity:
+            return {}
+        found = labels(entity)
+        # Hidden in the default card; visible under the entity's attributes.
+        return {"wiser_room": found["room"], "wiser_gateway_name": found["gateway_name"], "wiser_gateway_room": found["gateway_room"]}
