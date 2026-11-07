@@ -62,7 +62,7 @@ export const test = base.extend({
         if (control.failAfterTarget) control.failStates = true;
         return success({ id: Number(target[1]), target_state: payload });
       }
-      if (req.url === '/api/rooms') return success([{ id: 1, name: 'Hall' }, { id: 2, name: 'Office' }]);
+      if (req.url === '/api/rooms') return success([{ id: 1, name: 'Hall' }, { id: 2, name: 'Home office' }]);
       if (['/api/devices', '/api/hvacgroups', '/api/hvacgroups/state'].includes(req.url)) return success([]);
       return reply(404, { status: 'error', message: 'Unsupported fixture resource' });
     });

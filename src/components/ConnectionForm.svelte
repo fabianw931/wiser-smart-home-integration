@@ -13,7 +13,7 @@
 </script>
 
 <section class="mx-auto max-w-xl" aria-labelledby="connection-heading">
-  <div class="card bg-base-100 border border-base-300 shadow-sm">
+  <div class="card bg-base-100 border border-base-300">
     <div class="card-body gap-5">
       <div>
         <h2 id="connection-heading" class="card-title text-2xl">Connect to your gateway</h2>
@@ -29,8 +29,8 @@
           </label>
 
           <div class="join w-full" role="radiogroup" aria-label="Sign-in method">
-            <input class="join-item btn btn-sm flex-1" type="radio" name="auth-mode" value="token" bind:group={mode} aria-label="Use existing token" />
-            <input class="join-item btn btn-sm flex-1" type="radio" name="auth-mode" value="pair" bind:group={mode} onchange={() => (token = '')} aria-label="Pair new client" />
+            <input class="join-item btn min-h-11 flex-1" type="radio" name="auth-mode" value="token" bind:group={mode} aria-label="Use existing token" />
+            <input class="join-item btn min-h-11 flex-1" type="radio" name="auth-mode" value="pair" bind:group={mode} onchange={() => (token = '')} aria-label="Pair new client" />
           </div>
 
           {#if mode === 'token'}
@@ -38,10 +38,10 @@
               <span class="fieldset-legend">Gateway token</span>
               <input class="input w-full" type="password" bind:value={token} required autocomplete="off" />
             </label>
-            <button class="btn btn-primary w-full" type="submit">Connect</button>
+            <button class="btn btn-primary min-h-11 w-full" type="submit">Connect</button>
           {:else}
             <p class="text-sm">Stand next to the gateway. After you start, press a flashing gateway button within about 30 seconds. A unique client account will be created.</p>
-            <button class="btn btn-primary w-full" type="submit">Start pairing</button>
+            <button class="btn btn-primary min-h-11 w-full" type="submit">Start pairing</button>
           {/if}
         </fieldset>
       </form>
@@ -51,7 +51,7 @@
       {/if}
       {#if error}<div class="alert alert-error alert-soft text-sm" role="alert">{error}</div>{/if}
 
-      <p class="text-xs text-base-content/60">Tokens stay in this server's memory only and are never stored in the browser. All tabs share one connection; the gateway uses unencrypted HTTP, so use a trusted network and never expose this app's port.</p>
+      <p class="text-xs text-base-content/70">Tokens stay in this server's memory only and are never stored in the browser. All tabs share one connection; the gateway uses unencrypted HTTP, so use a trusted network and never expose this app's port.</p>
     </div>
   </div>
 </section>

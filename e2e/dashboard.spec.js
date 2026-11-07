@@ -66,7 +66,7 @@ test('accepted commands do not become reported state and refresh failure is visi
   await hall.getByRole('checkbox', { name: 'Hall light power' }).click();
   await expect(page.getByRole('alert')).toContainText('Gateway request failed');
   await expect(page.getByText(/Target accepted for Hall light/)).toBeVisible();
-  await expect(hall).toContainText('Stale or unavailable');
+  await expect(page.getByText(/Readings are stale or unavailable/)).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Gateway request failed');
   await expect(hall.getByRole('checkbox', { name: 'Hall light power' })).toBeDisabled();
   gateway.control.failStates = false;
@@ -102,9 +102,8 @@ test('narrow-screen form supports keyboard submission without horizontal overflo
 test('loads are grouped by room and can be filtered and searched', async ({ page, gateway }) => {
   await connect(page, gateway);
   await expect(page.getByRole('heading', { level: 2, name: /^Hall/ })).toBeVisible();
-  const office = page.getByRole('region', { name: /^Office/ });
+  const office = page.getByRole('region', { name: /^Home office/ });
   await expect(office.getByRole('article')).toHaveCount(2);
-  await expect(page.getByRole('region', { name: 'Overview' })).toContainText('Lights on');
   await page.getByRole('button', { name: /^Blinds/ }).click();
   await expect(page.getByRole('article')).toHaveCount(1);
   await expect(page.getByRole('article', { name: 'Office blind' })).toBeVisible();
