@@ -29,16 +29,16 @@ npm start
 `npm start` builds the frontend into `dist/` and starts the local server. Open **http://127.0.0.1:3000**. To choose another local port, run `PORT=3001 npm start` (POSIX shell). The server binds only to `127.0.0.1`; the frontend and API share one origin. CSS is built locally, with no runtime CDN dependency. After building, `node server.js` starts the server without rebuilding.
 
 1. Enter your commissioned gateway's IP or hostname and connect with an existing token, or explicitly pair a new account by pressing the gateway button when prompted.
-2. Use Home to control lights and blinds normally. Brightness and blind-position inputs use 0–100% with 0.01% precision. DALI tunable-white and RGBW controls appear for the appropriate load subtype.
-3. In **Configuration**, save your personal names, custom room labels, and notes. These are stored in the local `data/wiser.sqlite` database and are never sent to the gateway. Device controls keep working. **Export mappings** downloads a portable JSON backup; **Import mappings** restores missing entries. See [personal mappings](docs/local-mappings.md).
-4. Actual gateway name/room changes are available separately under **Change gateway metadata…**. Review the changes and confirm **Apply this change to gateway**. Personal mappings are never applied automatically. Installer settings and device commissioning are not touched.
+2. **Home** is organised by room (and by floor once you define floors). The top line shows how many lights are on and blinds closed; whole-home and per-room quick actions switch lights off or open/close blinds (blind actions ask for an inline confirmation). Each device has a power switch, a brightness or position slider that commits shortly after you let go, and a **More** section for exact 0.01% values, DALI tunable-white and RGBW channels, renaming, and raw state. Pin devices or rooms with the star to keep them under **Pinned**. Weather chips (rain, hail, wind and any temperature or daylight sensors) sit above the rooms.
+3. In **Settings → Rooms & floors**, group your rooms into floors and order them; floors and pins are saved locally in `data/wiser.sqlite` and never sent to the gateway. In **Settings → Names & notes**, save your personal names, custom room labels, and notes (also local). Device controls keep working. **Export mappings** downloads a portable JSON backup; **Import mappings** restores missing entries. See [personal mappings](docs/local-mappings.md).
+4. Actual gateway name/room changes are available separately under **Settings → Names & notes → Change gateway metadata…**. Review the changes and confirm **Apply this change to gateway**. Personal mappings are never applied automatically. Installer settings and device commissioning are not touched.
 5. Use **Explore sample home** for a clearly labeled offline demonstration. Its controls simulate fictional devices.
-6. **Diagnostics** shows optional read-only resources. Gateway push updates appear live, with a visible Live/Polling indicator. Polling every 30 seconds remains as fallback; slow diagnostics do not block controls.
-7. Select **Remember this gateway on this computer** when connecting to enable encrypted local credential storage and startup reconnect. **Disconnect for now** keeps it; **Disconnect & forget credentials** clears the active and saved connection. See [remembered connections](docs/remembered-connection.md).
+6. **Sensors & buttons** shows weather and sensor readings, weather-protection rules and physical buttons (with LED identify). **Settings → Diagnostics** shows optional read-only resources. Gateway push updates appear live, with a visible Live/Polling indicator in the top bar. Polling every 30 seconds remains as fallback; slow diagnostics do not block controls.
+7. Select **Remember this gateway on this computer** when connecting to enable encrypted local credential storage and startup reconnect. **Disconnect for now** (Settings → Connection) keeps it; **Disconnect & forget credentials** clears the active and saved connection. See [remembered connections](docs/remembered-connection.md).
 
 ### Appearance
 
-Use **Appearance** in the sidebar to choose **System**, **Light**, or **Dark**. System follows your operating system automatically; an explicit choice is remembered in this browser. This preference is separate from SQLite personal mappings and never affects gateway controls.
+Use **Settings → Appearance** to choose **System**, **Light**, or **Dark**. System follows your operating system automatically; an explicit choice is remembered in this browser. This preference is separate from SQLite personal mappings and never affects gateway controls.
 
 ### Home Assistant and automations
 
@@ -77,8 +77,11 @@ Browser tests cover the local app against a loopback-only fake gateway and never
 
 ### Code layout
 
-- `src/App.svelte`: connection lifecycle, resource refresh, polling, and command feedback.
-- `src/components/`: connection form, load cards, personal configuration, and read-only resource panels.
+- `src/dashboard.svelte.js`: connection lifecycle, live updates, polling, commands (including queued commands and room quick actions), personal mappings and layout.
+- `src/home.js`: pure helpers (room/floor model, summaries, quick-action targets, weather chips); covered by `test/home.test.js`.
+- `src/App.svelte`: app shell and hash routing (`#/home`, `#/sensors`, `#/settings/<section>`).
+- `src/components/`: top bar, Home view, room blocks, device rows, quick actions, settings (floors editor, names & notes, connection, appearance, diagnostics), connection screen, and read-only resource panels.
+- `src/layout.js`: floors/favorites validation shared by browser and server.
 - `src/api.js`: same-origin API calls, timeouts, and cancellation.
 - `src/mappings.js`: personal mapping validation, legacy browser migration helpers, and JSON import/export.
 - `storage.js`: versioned SQLite personal mapping store; defaults to `data/wiser.sqlite`, configurable with `WISER_DB_PATH`.

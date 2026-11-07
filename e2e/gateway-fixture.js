@@ -22,12 +22,12 @@ export const test = base.extend({
   gateway: async ({ liveUpdates }, use) => {
     const loads = [
       { id: 1, type: 'onoff', name: 'Hall light', room: 1, device: 'fake-1', channel: 0, unused: false },
-      { id: 2, type: 'dim', name: 'Desk light', device: 'fake-2', channel: 0, unused: false },
-      { id: 3, type: 'motor', name: 'Office blind', device: 'fake-3', channel: 0, unused: false },
+      { id: 2, type: 'dim', name: 'Desk light', room: 2, device: 'fake-2', channel: 0, unused: false },
+      { id: 3, type: 'motor', name: 'Office blind', room: 2, device: 'fake-3', channel: 0, unused: false },
       { id: 4, type: 'unknown', name: 'Unknown device', device: 'fake-4', channel: 0, unused: false },
       { id: 5, type: 'dim', name: 'Unused channel', device: 'fake-5', channel: 0, unused: true },
-      { id: 6, type: 'dali', sub_type: '', name: 'DALI spots', device: 'fake-6', channel: 0 },
-      { id: 7, type: 'dali', sub_type: 'tw', name: 'DALI white', device: 'fake-7', channel: 0 },
+      { id: 6, type: 'dali', sub_type: '', name: 'DALI spots', room: 2, device: 'fake-6', channel: 0 },
+      { id: 7, type: 'dali', sub_type: 'tw', name: 'DALI white', room: 2, device: 'fake-7', channel: 0 },
       { id: 8, type: 'dali', sub_type: 'rgb', name: 'DALI color', device: 'fake-8', channel: 0 },
       { id: 9, type: 'dali', sub_type: 'future', name: 'Unknown DALI', device: 'fake-9', channel: 0 },
       { id: 10, type: 'dali', name: 'Missing DALI state', device: 'fake-10', channel: 0 },
@@ -43,6 +43,9 @@ export const test = base.extend({
       loads,
       holdDiagnostics: false,
       releaseDiagnostics: () => {},
+      holdStates: false,
+      releaseStates: () => {},
+      failTargets: new Set(),
       failStates: false,
       applyTargets: true,
       failAfterTarget: false,
@@ -80,11 +83,13 @@ export const test = base.extend({
         return success({ ...load, state: states.get(load.id) });
       }
       if (req.url === '/api/loads/state') {
+        if (control.holdStates) await new Promise(resolve => { control.releaseStates = resolve; });
         if (control.failStates) return reply(503, { status: 'error' });
         return success([...states].map(([id, state]) => ({ id, state })));
       }
       const target = /^\/api\/loads\/(\d+)\/target_state$/.exec(req.url);
       if (req.method === 'PUT' && target) {
+        if (control.failTargets.has(Number(target[1]))) return reply(500, { status: 'error', message: 'Synthetic target failure' });
         if (control.applyTargets) states.set(Number(target[1]), { ...states.get(Number(target[1])), ...payload });
         if (control.failAfterTarget) control.failStates = true;
         return success({ id: Number(target[1]), target_state: payload });

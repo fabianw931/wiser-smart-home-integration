@@ -153,7 +153,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
     };
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; img-src 'self' data:");
     res.setHeader('Referrer-Policy', 'no-referrer');
     try {
       const port = server.address().port;
@@ -235,11 +235,18 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       if (req.headers['x-wiser-client'] !== 'local-poc') throw new AppError(403, 'Local app header required.');
       if (path.startsWith('/api/local/')) {
         const url = new URL(path, 'http://localhost');
-        const route = /^\/api\/local\/mappings(?:\/(import|\d{1,10}))?$/.exec(url.pathname);
+        const route = /^\/api\/local\/(?:mappings(?:\/(import|\d{1,10}))?|(layout))$/.exec(url.pathname);
         if (!route) throw new AppError(404, 'Endpoint not allowed.');
         if ([...url.searchParams.keys()].some(key => key !== 'gateway') || url.searchParams.getAll('gateway').length !== 1 || url.hash) invalid('Supply one gateway key only.');
         const inputGateway = url.searchParams.get('gateway');
         const gatewayKey = inputGateway === 'sample-home' ? inputGateway : validateHost(inputGateway).replace(/^\[|\]$/g, '');
+        if (route[2]) {
+          if (req.method === 'GET') return reply(200, { data: store.getLayout(gatewayKey) });
+          if (req.method !== 'PUT') throw new AppError(404, 'Endpoint not allowed.');
+          const input = await body(req, 64 * 1024);
+          keys(input, ['layout']);
+          try { return reply(200, { data: store.putLayout(gatewayKey, input.layout) }); } catch (error) { invalid(error.message); }
+        }
         const id = route[1];
         const validate = value => {
           try { return validateMappings(value); } catch (error) { invalid(error.message); }

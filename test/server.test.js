@@ -133,6 +133,34 @@ test('local import accepts validated collections larger than gateway request lim
   assert.equal(f.calls.length, 0);
 });
 
+test('local layout GET default, PUT then GET, validation and protections', async t => {
+  const f = await fixture(t);
+  const url = '/api/local/layout?gateway=wiser.local';
+  const empty = { floors: [], favorites: { loads: [], rooms: [] } };
+  const layout = { floors: [{ name: 'Ground', rooms: ['Kitchen', 'Hall'] }], favorites: { loads: [3, 1], rooms: ['Kitchen'] } };
+  assert.deepEqual((await f.request(url)).body, { data: empty });
+  const saved = await f.request(url, 'PUT', { layout: { floors: [{ name: ' Ground ', rooms: ['Kitchen', 'Hall'] }], favorites: layout.favorites } });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body, { data: layout });
+  assert.deepEqual((await f.request(url)).body, { data: layout });
+  assert.deepEqual((await f.request('/api/local/layout?gateway=other.local')).body, { data: empty });
+  assert.equal((await f.request('/api/local/layout?gateway=sample-home', 'PUT', { layout })).status, 200);
+  for (const input of [{}, { layout: null }, { layout: { extra: 1 } }, { layout, extra: 1 }, { layout: { floors: [{ name: 'A', rooms: [] }, { name: 'a', rooms: [] }] } }]) {
+    assert.equal((await f.request(url, 'PUT', input)).status, 400, JSON.stringify(input));
+  }
+  const huge = { layout: { floors: [{ name: 'A', rooms: ['x'.repeat(70000)] }] } };
+  assert.equal((await f.request(url, 'PUT', huge)).status, 413);
+  assert.deepEqual((await f.request(url)).body, { data: layout });
+  assert.equal((await f.request(url, 'PUT', { layout }, { 'X-Wiser-Client': undefined })).status, 403);
+  assert.equal((await f.request(url, 'GET', undefined, { 'X-Wiser-Client': undefined })).status, 403);
+  assert.equal((await f.request(url, 'DELETE')).status, 404);
+  assert.equal((await f.request(url, 'POST', { layout })).status, 404);
+  assert.equal((await f.request('/api/local/layout/1?gateway=wiser.local')).status, 404);
+  assert.equal((await f.request('/api/local/layouts?gateway=wiser.local')).status, 404);
+  assert.equal((await f.request('/api/local/layout')).status, 400);
+  assert.equal(f.calls.length, 0);
+});
+
 test('local API mappings persist after the app server closes and restarts', async () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), 'wiser-api-')), 'wiser.sqlite');
   let app = createApp({ dbPath });

@@ -3,8 +3,8 @@
   export let load, rooms = [], onsave, onclose;
   let dialog;
   let name = load.name || `Load ${load.id}`;
-  let room = load.personalRoom;
-  let notes = load.personalNotes;
+  let room = load.room;
+  let notes = load.notes;
   let saving = false;
   let failed = false;
   onMount(() => dialog.showModal());

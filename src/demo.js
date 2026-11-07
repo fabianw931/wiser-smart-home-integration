@@ -14,15 +14,19 @@ export function sampleHome() {
       { id: 26, name: 'Hail', device: '00000124', channel: 5, type: 'hail', value: false, unit: 'bool' },
     ],
     westgroups: [{ id: 6, name: 'Living room protection', loads: [3], wind: { action: 'up and lock', threshold: 5.5, unit: 'm/s' }, temperature: { action: 'off' }, rain: { action: 'off' }, hail: { action: 'up and lock' } }],
-    rooms: [{ id: 1, name: 'Living room' }, { id: 2, name: 'Kitchen' }, { id: 3, name: 'Bedroom' }],
+    rooms: [{ id: 1, name: 'Living room' }, { id: 2, name: 'Kitchen' }, { id: 3, name: 'Bedroom' }, { id: 4, name: 'Hall' }],
     loads: [
       { id: 1, name: 'Pendant lights', type: 'dali', sub_type: 'tw', room: 1, device: 'sample-1', channel: 0 },
       { id: 2, name: 'Reading corner', type: 'dim', room: 1, device: 'sample-2', channel: 0 },
       { id: 3, name: 'Window blinds', type: 'motor', room: 1, device: 'sample-3', channel: 0 },
       { id: 4, name: 'Counter lighting', type: 'dali', sub_type: 'rgb', room: 2, device: 'sample-4', channel: 0 },
       { id: 5, name: 'Ceiling light', type: 'onoff', room: 3, device: 'sample-5', channel: 0 },
+      { id: 6, name: 'Bedroom blinds', type: 'motor', room: 3, device: 'sample-6', channel: 0 },
+      { id: 7, name: 'Hall light', type: 'onoff', room: 4, device: 'sample-7', channel: 0 },
     ],
     states: { 1: { bri: 6500, ct: 3000 }, 2: { bri: 3500 }, 3: { level: 2000 },
-      4: { bri: 8000, red: 255, green: 160, blue: 60, white: 80 }, 5: { bri: 0 } },
+      4: { bri: 8000, red: 255, green: 160, blue: 60, white: 80 }, 5: { bri: 0 }, 6: { level: 10000 }, 7: { bri: 10000 } },
+    // Illustrative layout, used only while the sample home has no saved layout of its own.
+    layout: { floors: [{ name: 'Ground floor', rooms: ['Living room', 'Kitchen', 'Hall'] }, { name: 'Upstairs', rooms: ['Bedroom'] }], favorites: { loads: [], rooms: [] } },
   };
 }

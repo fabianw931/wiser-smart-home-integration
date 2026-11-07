@@ -5,8 +5,11 @@ async function connect(page, gateway) {
   await page.getByLabel(/Gateway IP or hostname/).fill('127.0.0.1');
   await page.getByLabel('Gateway token').fill(gateway.token);
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Refresh now' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
 }
+
+const openSensors = page => page.getByRole('button', { name: 'Sensors & buttons', exact: true }).click();
+const show = (page, name) => page.getByRole('group', { name: 'Show', exact: true }).getByRole('button', { name, exact: true }).click();
 
 test('buttons identify only on explicit click, weather preserves zero and shows rules separately', async ({ page, gateway }) => {
   gateway.control.installationResources = {
@@ -20,7 +23,8 @@ test('buttons identify only on explicit click, weather preserves zero and shows 
     westgroups: [{ id: 6, loads: [3], wind: { action: 'up and lock', threshold: 5.5, unit: 'm/s' } }],
   };
   await connect(page, gateway);
-  await page.getByRole('button', { name: 'Buttons', exact: true }).click();
+  await openSensors(page);
+  await show(page, 'Buttons');
   const button = page.getByRole('article', { name: 'Hall switch', exact: true });
   await expect(button).toContainText('Not registered');
   await expect(page.getByText('Job: 8', { exact: true })).toBeVisible();
@@ -30,7 +34,7 @@ test('buttons identify only on explicit click, weather preserves zero and shows 
   expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([
     { path: '/api/buttons/0000a98f_0/ping', method: 'PUT', payload: { time_ms: 2000 } },
   ]);
-  await page.getByRole('button', { name: 'Weather', exact: true }).click();
+  await show(page, 'Weather & sensors');
   await expect(page.getByRole('article', { name: 'Wind speed' })).toContainText('0 m/s');
   await expect(page.getByRole('article', { name: 'Rain sensor' })).toContainText('Not detected');
   await expect(page.getByRole('article', { name: 'Missing temperature' })).toContainText('Unavailable');
@@ -38,13 +42,16 @@ test('buttons identify only on explicit click, weather preserves zero and shows 
   await expect(page.getByText(/These are configured rules, not live alarms/)).toBeVisible();
   await page.getByLabel('Search weather').fill('Wind');
   await expect(page.getByRole('article', { name: 'Rain sensor' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Connection', exact: true }).click();
   await page.getByRole('button', { name: 'Disconnect & forget credentials' }).click();
   await expect(page.getByRole('article')).toHaveCount(0);
 });
 
 test('unsupported installation resources remain distinct from an empty installation', async ({ page, gateway }) => {
   await connect(page, gateway);
-  await page.getByRole('button', { name: 'Buttons', exact: true }).click();
+  await openSensors(page);
+  await show(page, 'Buttons');
   await expect(page.getByText('Unsupported by gateway').first()).toBeVisible();
   await expect(page.getByText('Resources are not available yet.')).toBeVisible();
   expect(gateway.control.calls.filter(call => call.method !== 'GET')).toEqual([]);
@@ -53,10 +60,11 @@ test('unsupported installation resources remain distinct from an empty installat
 test('sample installation is explorable without gateway actions', async ({ page, gateway }) => {
   await page.goto(gateway.url);
   await page.getByRole('button', { name: 'Explore sample home' }).click();
-  await page.getByRole('button', { name: 'Buttons', exact: true }).click();
+  await openSensors(page);
+  await show(page, 'Buttons');
   await expect(page.getByRole('article', { name: 'Entrance switch', exact: true })).toBeVisible();
   for (const button of await page.getByRole('button', { name: 'Identify · flash LED for 2 seconds' }).all()) await expect(button).toBeDisabled();
-  await page.getByRole('button', { name: 'Weather', exact: true }).click();
+  await show(page, 'Weather & sensors');
   await expect(page.getByRole('article', { name: 'Wind', exact: true })).toContainText('3.2 m/s');
   expect(gateway.control.calls).toEqual([]);
 });

@@ -50,7 +50,6 @@
 
 <section class="configuration-layout" aria-label="Configuration workspace">
   <div class="card configuration-editor"><div class="card-body">
-    <p class="eyebrow">Your personal organization</p>
     <h2 class="section-title">Names, rooms & notes</h2>
     <p class="muted">Save your own labels in the local SQLite database. Lights and blinds still work normally; these settings are never sent to the gateway.</p>
     <form onsubmit={save} class="space-y-4">

@@ -19,4 +19,15 @@ export function saveTheme(preference) {
   catch { return false; }
 }
 
+// Keeps the page theme current for the whole app, independent of the settings screen.
+export function watchTheme() {
+  const media = matchMedia('(prefers-color-scheme: dark)');
+  const update = () => applyTheme(readTheme());
+  const sync = event => { if (event.key === THEME_KEY || event.key === null) update(); };
+  media.addEventListener('change', update);
+  window.addEventListener('storage', sync);
+  update();
+  return () => { media.removeEventListener('change', update); window.removeEventListener('storage', sync); };
+}
+
 export { THEME_KEY };
