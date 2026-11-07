@@ -46,6 +46,8 @@ Use **Settings → Appearance** to choose **System**, **Light**, **Dark**, **Gru
 
 An opt-in machine API (set `WISER_INTEGRATION_TOKEN` in `.env`; `npm start` then also starts its separate listener) gives Home Assistant lights, blinds, weather sensors and button identification through the [native HA integration](docs/ha-native.md). It is read-only unless `WISER_INTEGRATION_CONTROL=1`, serves snapshots from a cache so the gateway sees about 5 requests per minute however often Home Assistant polls, and pushes live changes over a long-lived stream. The listener defaults to HTTPS but is usually run as explicit, opt-in plain HTTP on a trusted LAN (`WISER_API_TLS=0`, `WISER_API_BIND=<LAN address>`; the token then travels unencrypted, in the same exposure class as the gateway's own HTTP). The browser app itself stays localhost-only. See the [listener guide](docs/integration-listener.md) for settings and the handover safe-mode checklist. Use HA as the automation engine; no schedules are installed. **Settings → Diagnostics → Gateway events (raw)** shows undocumented gateway messages (for example a button press) to help learn their format.
 
+To run it permanently on a Raspberry Pi in Docker (`docker compose up -d --build`, web UI kept on the Pi's loopback, firewall rule that lets only Home Assistant reach the listener), see [deploy-raspberry-pi.md](docs/deploy-raspberry-pi.md).
+
 ### Safety and limitations
 
 - **This is a local unauthenticated app controlling real equipment.** Anyone or any program with access to this local service can use its current gateway session. All tabs share one in-memory connection; use one tab. Do not expose, reverse-proxy, forward, or tunnel its port. It is not a multi-user service or a production home-automation controller.
