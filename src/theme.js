@@ -1,5 +1,7 @@
+import { THEME_IDS } from './themes.js';
+
 const THEME_KEY = 'wiser-appearance';
-export const validTheme = value => ['system', 'light', 'dark'].includes(value);
+export const validTheme = value => THEME_IDS.includes(value);
 
 export function readTheme() {
   try {
@@ -8,9 +10,14 @@ export function readTheme() {
   } catch { return 'system'; }
 }
 
+// "system" resolves to light or dark; every other preference is its own data-theme.
+export function resolveTheme(preference) {
+  if (preference !== 'system') return preference;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export function applyTheme(preference) {
-  const dark = preference === 'dark' || (preference === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.documentElement.dataset.theme = resolveTheme(preference);
 }
 
 export function saveTheme(preference) {

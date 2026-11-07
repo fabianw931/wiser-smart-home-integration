@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { readTheme, applyTheme, saveTheme, THEME_KEY } from '../theme.js';
+  import { THEME_GROUPS } from '../themes.js';
   let preference = readTheme();
   let saved = true;
   function change(event) {
@@ -23,9 +24,11 @@
 <div class="theme-setting">
   <label class="theme-picker">Appearance
     <select class="select" value={preference} onchange={change}>
-      <option value="system">System</option>
-      <option value="light">Light</option>
-      <option value="dark">Dark</option>
+      {#each THEME_GROUPS as group}
+        <optgroup label={group.label}>
+          {#each group.themes as theme}<option value={theme.id}>{theme.label}</option>{/each}
+        </optgroup>
+      {/each}
     </select>
   </label>
   {#if !saved}<p class="text-xs" role="status">Theme changed for this visit; browser storage is unavailable.</p>{/if}

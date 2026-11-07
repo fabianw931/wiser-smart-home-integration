@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeMapping, mappingMatches, readMappings, saveMappings, exportMappings, importMappings, MAPPING_KEY } from '../src/mappings.js';
+import { makeMapping, mappingMatches, readMappings, saveMappings, MAPPING_KEY } from '../src/mappings.js';
 
 const load = { id: 1, device: 'fixture-device', channel: 0, type: 'dali', name: 'Original', room: 1 };
 const fields = { name: 'My pendant', room: 'My custom room', notes: 'By the window' };
@@ -21,13 +21,6 @@ test('local mappings are isolated by gateway and survive independent reads', () 
   assert.deepEqual(readMappings(store, 'gateway-b'), {});
   saveMappings(store, 'gateway-a', {});
   assert.equal(store.getItem(MAPPING_KEY), null);
-});
-test('portable mapping files validate gateway, fields and size', () => {
-  const mappings = { 1: makeMapping(load, fields) };
-  assert.deepEqual(importMappings(exportMappings('gateway-a', mappings), 'gateway-a'), mappings);
-  assert.throws(() => importMappings(exportMappings('gateway-a', mappings), 'gateway-b'));
-  assert.throws(() => importMappings(JSON.stringify({ version: 1, gateway: 'gateway-a', mappings: { 1: { ...mappings[1], token: 'unwanted-field' } } }), 'gateway-a'));
-  assert.throws(() => importMappings('x'.repeat(1024 * 1024 + 1), 'gateway-a'));
 });
 test('invalid storage is reported rather than silently overwritten', () => {
   const store = storage();

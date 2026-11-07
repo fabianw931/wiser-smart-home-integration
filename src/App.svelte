@@ -12,7 +12,7 @@
 
   const dash = new Dashboard();
   const PAGES = ['home', 'sensors', 'settings'];
-  const SECTIONS = ['floors', 'names', 'connection', 'appearance', 'diagnostics'];
+  const SECTIONS = ['floors', 'names', 'backup', 'connection', 'appearance', 'diagnostics'];
 
   function parse() {
     const [page, section] = location.hash.replace(/^#\/?/, '').split('/');

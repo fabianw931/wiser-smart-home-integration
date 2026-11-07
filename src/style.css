@@ -33,7 +33,146 @@
   --disabled: #2a3237; --disabled-ink: #86929a;
   --scrim: #000000c0;
 }
+/* Custom themes: official Gruvbox and Catppuccin palettes mapped onto the same roles. Each block is complete (tokens + daisyUI colours) so no default leaks. */
+[data-theme="gruvbox-light"] {
+  color-scheme: light;
+  --paper: #ebdbb2; --surface: #f2e5bc; --raised: #fbf1c7;
+  --ink: #3c3836; --muted: #665c54; --rule: #d5c4a1; --field: #7c6f64;
+  --accent: #076678; --accent-hover: #054b58; --accent-ink: #fbf1c7;
+  --lit: #d79921; --lit-ink: #282828; --lit-strong: #9a6a0f;
+  --shade: #458588;
+  --warn-bg: #eed9a3; --warn-ink: #6b4500; --warn-rule: #d8b565;
+  --err: #9d0006; --err-bg: #f1dcb8; --ok: #79740e;
+  --disabled: #e1d1a8; --disabled-ink: #7c6f64;
+  --scrim: #282828b3;
+  --color-primary: var(--accent); --color-primary-content: var(--accent-ink);
+  --color-secondary: var(--rule); --color-secondary-content: var(--ink);
+  --color-accent: var(--accent); --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--raised); --color-neutral-content: var(--ink);
+  --color-base-100: var(--surface); --color-base-200: var(--paper);
+  --color-base-300: var(--rule); --color-base-content: var(--ink);
+  --color-info: #076678; --color-info-content: #fbf1c7;
+  --color-success: var(--ok); --color-success-content: #ffffff;
+  --color-warning: var(--lit); --color-warning-content: var(--lit-ink);
+  --color-error: var(--err); --color-error-content: var(--err-bg);
+}
 
+[data-theme="gruvbox-dark"] {
+  color-scheme: dark;
+  --paper: #1d2021; --surface: #282828; --raised: #32302f;
+  --ink: #ebdbb2; --muted: #bdae93; --rule: #504945; --field: #928374;
+  --accent: #83a598; --accent-hover: #a1b8a4; --accent-ink: #1d2021;
+  --lit: #fabd2f; --lit-ink: #282828; --lit-strong: #fabd2f;
+  --shade: #458588;
+  --warn-bg: #403923; --warn-ink: #fabd2f; --warn-rule: #816727;
+  --err: #fe5c4a; --err-bg: #2d1f1d; --ok: #b8bb26;
+  --disabled: #3c3836; --disabled-ink: #928374;
+  --scrim: #000000c0;
+  --color-primary: var(--accent); --color-primary-content: var(--accent-ink);
+  --color-secondary: var(--rule); --color-secondary-content: var(--ink);
+  --color-accent: var(--accent); --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--raised); --color-neutral-content: var(--ink);
+  --color-base-100: var(--surface); --color-base-200: var(--paper);
+  --color-base-300: var(--rule); --color-base-content: var(--ink);
+  --color-info: #83a598; --color-info-content: #1d2021;
+  --color-success: var(--ok); --color-success-content: #1d2021;
+  --color-warning: var(--lit); --color-warning-content: var(--lit-ink);
+  --color-error: var(--err); --color-error-content: var(--err-bg);
+}
+
+[data-theme="catppuccin-latte"] {
+  color-scheme: light;
+  --paper: #dce0e8; --surface: #e6e9ef; --raised: #eff1f5;
+  --ink: #4c4f69; --muted: #5c5f77; --rule: #bcc0cc; --field: #7c7f93;
+  --accent: #1a57d0; --accent-hover: #1546a8; --accent-ink: #eff1f5;
+  --lit: #df8e1d; --lit-ink: #1e1e2e; --lit-strong: #a35d00;
+  --shade: #7c7f93;
+  --warn-bg: #f0dfc4; --warn-ink: #6b4100; --warn-rule: #d9b27a;
+  --err: #c10e34; --err-bg: #f0dde3; --ok: #2f7d1f;
+  --disabled: #ccd0da; --disabled-ink: #7c7f93;
+  --scrim: #11111bb3;
+  --color-primary: var(--accent); --color-primary-content: var(--accent-ink);
+  --color-secondary: #ccd0da; --color-secondary-content: var(--ink);
+  --color-accent: var(--accent); --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--raised); --color-neutral-content: var(--ink);
+  --color-base-100: var(--surface); --color-base-200: var(--paper);
+  --color-base-300: var(--rule); --color-base-content: var(--ink);
+  --color-info: #1a57d0; --color-info-content: #eff1f5;
+  --color-success: var(--ok); --color-success-content: #eff1f5;
+  --color-warning: var(--lit); --color-warning-content: var(--lit-ink);
+  --color-error: var(--err); --color-error-content: var(--err-bg);
+}
+
+[data-theme="catppuccin-frappe"] {
+  color-scheme: dark;
+  --paper: #292c3c; --surface: #303446; --raised: #414559;
+  --ink: #c6d0f5; --muted: #b5bfe2; --rule: #51576d; --field: #949cbb;
+  --accent: #babbf1; --accent-hover: #d0d0f6; --accent-ink: #232634;
+  --lit: #e5c890; --lit-ink: #232634; --lit-strong: #e5c890;
+  --shade: #838ba7;
+  --warn-bg: #474549; --warn-ink: #e5c890; --warn-rule: #7e7362;
+  --err: #e78284; --err-bg: #352f3f; --ok: #a6d189;
+  --disabled: #3a3e52; --disabled-ink: #838ba7;
+  --scrim: #000000c0;
+  --color-primary: var(--accent); --color-primary-content: var(--accent-ink);
+  --color-secondary: var(--rule); --color-secondary-content: var(--ink);
+  --color-accent: var(--accent); --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--raised); --color-neutral-content: var(--ink);
+  --color-base-100: var(--surface); --color-base-200: var(--paper);
+  --color-base-300: var(--rule); --color-base-content: var(--ink);
+  --color-info: #85c1dc; --color-info-content: #232634;
+  --color-success: var(--ok); --color-success-content: #232634;
+  --color-warning: var(--lit); --color-warning-content: var(--lit-ink);
+  --color-error: var(--err); --color-error-content: var(--err-bg);
+}
+
+[data-theme="catppuccin-macchiato"] {
+  color-scheme: dark;
+  --paper: #1e2030; --surface: #24273a; --raised: #363a4f;
+  --ink: #cad3f4; --muted: #a5adcb; --rule: #494d64; --field: #939ab7;
+  --accent: #8aadf4; --accent-hover: #aac4f7; --accent-ink: #181926;
+  --lit: #eed49f; --lit-ink: #181926; --lit-strong: #eed49f;
+  --shade: #8087a2;
+  --warn-bg: #3f3d42; --warn-ink: #eed49f; --warn-rule: #7c7263;
+  --err: #ed8796; --err-bg: #302a3a; --ok: #a6da95;
+  --disabled: #2e3247; --disabled-ink: #8087a2;
+  --scrim: #000000c0;
+  --color-primary: var(--accent); --color-primary-content: var(--accent-ink);
+  --color-secondary: var(--rule); --color-secondary-content: var(--ink);
+  --color-accent: var(--accent); --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--raised); --color-neutral-content: var(--ink);
+  --color-base-100: var(--surface); --color-base-200: var(--paper);
+  --color-base-300: var(--rule); --color-base-content: var(--ink);
+  --color-info: #7dc4e4; --color-info-content: #181926;
+  --color-success: var(--ok); --color-success-content: #181926;
+  --color-warning: var(--lit); --color-warning-content: var(--lit-ink);
+  --color-error: var(--err); --color-error-content: var(--err-bg);
+}
+
+[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
+  --paper: #181825; --surface: #1e1e2e; --raised: #313244;
+  --ink: #cdd6f4; --muted: #a6adc8; --rule: #45475a; --field: #7f849c;
+  --accent: #89b4fa; --accent-hover: #abc8fc; --accent-ink: #11111b;
+  --lit: #f9e2af; --lit-ink: #11111b; --lit-strong: #f9e2af;
+  --shade: #7f849c;
+  --warn-bg: #3c383b; --warn-ink: #f9e2af; --warn-rule: #7e7464;
+  --err: #f38ba8; --err-bg: #2c2234; --ok: #a6e3a1;
+  --disabled: #2a2b3c; --disabled-ink: #7f849c;
+  --scrim: #000000c0;
+  --color-primary: var(--accent); --color-primary-content: var(--accent-ink);
+  --color-secondary: var(--rule); --color-secondary-content: var(--ink);
+  --color-accent: var(--accent); --color-accent-content: var(--accent-ink);
+  --color-neutral: var(--raised); --color-neutral-content: var(--ink);
+  --color-base-100: var(--surface); --color-base-200: var(--paper);
+  --color-base-300: var(--rule); --color-base-content: var(--ink);
+  --color-info: #74c7ec; --color-info-content: #11111b;
+  --color-success: var(--ok); --color-success-content: #11111b;
+  --color-warning: var(--lit); --color-warning-content: var(--lit-ink);
+  --color-error: var(--err); --color-error-content: var(--err-bg);
+}
+
+html { background: var(--paper); }
 body { min-width: 320px; margin: 0; background: var(--paper); color: var(--ink); font-size: 16px; line-height: 1.5; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 ::selection { background: color-mix(in oklab, var(--accent) 30%, transparent); }
@@ -200,6 +339,7 @@ section.pinned > h2 svg { fill: var(--lit); color: var(--lit-strong); }
 .room-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .room-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; border-top: 1px solid var(--rule); }
 .room-label { font-weight: 600; overflow-wrap: anywhere; }
+.backup-facts, .backup-preview { display: grid; gap: 8px; justify-items: start; margin-block: 0; }
 
 /* Dialogs */
 .dialog, .confirmation-dialog { margin: auto; width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; border: 1px solid var(--rule); border-radius: 12px; background: var(--surface); color: var(--ink); }

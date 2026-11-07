@@ -1,12 +1,13 @@
 <script>
   import FloorsEditor from './FloorsEditor.svelte';
   import ConfigurationPanel from './ConfigurationPanel.svelte';
+  import BackupPanel from './BackupPanel.svelte';
   import ThemePicker from './ThemePicker.svelte';
   import ResourcePanel from './ResourcePanel.svelte';
   import { RESOURCE_NAMES } from '../dashboard.svelte.js';
 
   let { dash, section = 'floors', onsection } = $props();
-  const sections = [['floors', 'Rooms & floors'], ['names', 'Names & notes'], ['connection', 'Connection'], ['appearance', 'Appearance'], ['diagnostics', 'Diagnostics']];
+  const sections = [['floors', 'Rooms & floors'], ['names', 'Names & notes'], ['backup', 'Backup'], ['connection', 'Connection'], ['appearance', 'Appearance'], ['diagnostics', 'Diagnostics']];
 </script>
 
 <div class="settings">
@@ -21,7 +22,9 @@
       <FloorsEditor {dash} />
     {:else if section === 'names'}
       <ConfigurationPanel loads={dash.loads} rooms={dash.rooms} mappings={dash.mappings} busy={dash.busy || dash.mappingBusy} demo={dash.demo}
-        onsave={dash.saveLocal} onremove={dash.removeLocal} onreview={dash.openReview} onexport={dash.exportLocal} onimport={dash.importLocal} />
+        onsave={dash.saveLocal} onremove={dash.removeLocal} onreview={dash.openReview} />
+    {:else if section === 'backup'}
+      <BackupPanel {dash} />
     {:else if section === 'connection'}
       <section class="settings-section" aria-labelledby="conn-heading">
         <h2 id="conn-heading">Connection</h2>

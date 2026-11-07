@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { loadEnv, gatewayFromEnv } from './env.js';
 import { createMappingStore, DEFAULT_DB_PATH } from './storage.js';
 import { validateMappings, mappingMatches } from './src/mappings.js';
 import { createCredentialStore } from './credentials.js';
@@ -74,7 +75,7 @@ async function body(req, limit = 8192) {
 
 // Factory permits tests to use an ephemeral fake gateway, without exposing a port
 // override or arbitrary URL through the public API.
-export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null, liveEnabled = false } = {}) {
+export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null, liveEnabled = false, envGateway = null } = {}) {
   if (typeof integrationToken !== 'string' || integrationToken !== '' && !/^[A-Za-z0-9_-]{32,256}$/.test(integrationToken)) throw new Error('WISER_INTEGRATION_TOKEN must contain 32–256 URL-safe ASCII characters.');
   const integrationDigest = createHash('sha256').update(integrationToken).digest();
   const gatewayKey = active => active.host.replace(/^\[|\]$/g, '');
@@ -87,6 +88,8 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
   let credentialError = '';
   try { savedConnection = credentials?.load() || null; }
   catch { credentialError = 'Saved credentials could not be unlocked. Check credential files and permissions.'; }
+  // A gateway configured in .env wins over a saved one and reconnects on every start; forgetting it lasts until restart.
+  if (envGateway) { savedConnection = { host: envGateway.host.replace(/^\[|\]$/g, ''), token: envGateway.token }; credentialError = ''; }
   let session = null;
   let generation = 0;
   let connecting = false;
@@ -467,7 +470,8 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  loadEnv();
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
-  createApp({ liveEnabled: true, dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
+  createApp({ liveEnabled: true, envGateway: gatewayFromEnv(), dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
 }

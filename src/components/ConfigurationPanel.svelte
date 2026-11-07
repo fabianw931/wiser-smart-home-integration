@@ -2,9 +2,9 @@
   import { mappingMatches } from '../mappings.js';
   export let loads = [], rooms = [], mappings = {};
   export let busy = false, demo = false;
-  export let onsave, onremove, onreview, onexport, onimport;
+  export let onsave, onremove, onreview;
   let selected = '', name = '', room = '', notes = '', formError = '', editingKey = '';
-  let gatewayName = '', gatewayRoom = '', gatewayBase = null, importInput;
+  let gatewayName = '', gatewayRoom = '', gatewayBase = null;
   $: load = loads.find(item => String(item.id) === String(selected));
   $: mapping = load && mappings[load.id];
   $: nextKey = JSON.stringify([selected, load, mapping]);
@@ -37,14 +37,6 @@
     if (!Object.keys(changes).length) { formError = 'No gateway metadata changes to review.'; return; }
     formError = '';
     onreview(load, { changes, expected });
-  }
-  async function importFile(event) {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = '';
-    if (!file) return;
-    if (file.size > 1024 * 1024) { formError = 'Mapping file is too large (maximum 1 MB).'; return; }
-    try { await onimport(await file.text()); formError = ''; }
-    catch (error) { formError = error.message; }
   }
 </script>
 
@@ -87,13 +79,7 @@
 
   <div class="card draft-panel"><div class="card-body">
     <div class="section-heading"><h2 class="section-title">Saved in SQLite</h2><span class="badge">{Object.keys(mappings).length}</span></div>
-    <p class="muted">Personal mappings are stored on the computer running this app, independently of your browser. Export a JSON file for a portable backup.</p>
-    <div class="flex flex-wrap gap-2">
-      <button class="btn btn-sm btn-outline" disabled={!Object.keys(mappings).length} onclick={onexport}>Export mappings</button>
-      <button class="btn btn-sm btn-outline" disabled={busy} onclick={() => importInput.click()}>Import mappings</button>
-      <input class="sr-only" tabindex="-1" type="file" accept=".json,application/json" aria-label="Import mappings file" bind:this={importInput} onchange={importFile} />
-    </div>
-    <p class="muted text-xs">Imports add missing mappings. Existing local entries are kept.</p>
+    <p class="muted">Personal mappings are stored on the computer running the app, independently of your browser. Use Settings → Backup for a portable backup file.</p>
     {#if !Object.keys(mappings).length}<div class="empty-state"><span class="empty-symbol" aria-hidden="true">✎</span><h3>Make it your own</h3><p>Give a light a useful name or organize it into any room you like.</p></div>{/if}
     {#each Object.entries(mappings) as [id, item]}
       {@const original = loads.find(load => String(load.id) === id)}

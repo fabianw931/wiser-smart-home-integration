@@ -20,7 +20,7 @@ Open **Settings → Names & notes**, choose a load, and enter a personal display
 
 On **Home**, open **More** on any device and use its **Name & room** section to edit the same personal name, room, and notes without navigating away. Saving moves the device to its personal room group immediately. Cancel leaves labels unchanged; a failed save retains your input for retry. The dashboard defaults to room groups, with device-type and flat-list alternatives under **Group devices by**. These groups organize the dashboard; they do not create gateway rooms or DALI groups.
 
-Saving, removing, importing, or exporting personal mappings makes no gateway requests. A mapping is your own dashboard organization, not a pending change to be applied to the installation. Changes to the installer's names or rooms do not overwrite your labels.
+Saving, removing, importing, or exporting personal mappings, floors, and pins makes no gateway requests. A mapping is your own dashboard organization, not a pending change to be applied to the installation. Changes to the installer's names or rooms do not overwrite your labels.
 
 Mappings use the gateway address plus the load's physical identity (ID, device, channel, type). They survive reloads, disconnect/reconnect, browser changes, and server restarts when using the same database. A missing load or changed identity retains its saved mapping but does not use it automatically.
 
@@ -30,11 +30,40 @@ Personal mappings are stored in **SQLite** on the computer running the app, by d
 
 Existing localStorage mappings migrate when that gateway is opened in the original browser. Existing database entries win; browser entries are cleared only after successful import. Migration failure retains the browser copy. Clearing browser site data after migration no longer deletes your mappings. Use a consistent gateway address: switching between its IP and hostname creates a separate mapping scope.
 
-**Export mappings** downloads a versioned JSON file to your laptop. Keep this file as a portable backup. **Import mappings** validates the file's gateway and fields, adds missing entries, and keeps existing entries. If you want to replace a local entry, remove that entry before importing. Import does not alter the gateway.
+## Backup: export and import everything
+
+**Settings → Backup → Export configuration** downloads one versioned JSON file, `wiser-configuration-<gateway>-<YYYY-MM-DD>.json`, for the connected gateway (or the sample home):
+
+```json
+{
+  "version": 2,
+  "kind": "wiser-workspace-configuration",
+  "gateway": "192.168.1.10",
+  "exported_at": "2026-03-04T10:20:30.000Z",
+  "mappings": { "1": { "identity": "…", "name": "Entrance pendant", "room": "Studio", "notes": "" } },
+  "layout": { "floors": [{ "name": "Ground floor", "rooms": ["Studio"] }], "favorites": { "loads": [2], "rooms": ["Studio"] } },
+  "devices": [{ "id": 1, "type": "onoff", "sub_type": null, "device": "0000a98f", "channel": 0,
+    "gateway_name": "Hall light", "gateway_room": "Hall", "personal_name": "Entrance pendant", "personal_room": "Studio", "unused": false }]
+}
+```
+
+- **Included:** personal names, room labels and notes (`mappings`), floors with their room order and pinned devices and rooms (`layout`).
+- **Reference only:** `devices` lists every device the app currently knows with the name and room *the gateway itself* reports (`gateway_name`, `gateway_room`, taken before personal names are applied) next to your personal name and room. It helps you match your labels to the real installation, for example when sending the file to an installer. It is ignored on import and never stored, and whatever it contains cannot make an import fail.
+- **Not included:** gateway configuration, device states, credentials, tokens, session scope, other gateways' data, and raw gateway responses.
+
+**Import configuration** reads a file, checks it, and shows a preview such as *Will add 3 personal names, 1 floor, 2 pinned items; 4 entries already exist and are kept.* Nothing is saved until you choose **Apply**; **Cancel** discards the file. Files for another gateway, files over 1 MB, malformed or unknown fields (a version 2 file may not carry extra top-level fields such as a token), and invalid mappings or layouts are rejected with a message and change nothing. Version 1 files (mappings only, from earlier releases) are still accepted.
+
+Merge rules (existing data always wins; to replace something, remove it first):
+
+- **Personal names:** only ids that have no entry yet are added.
+- **Floors:** a floor whose name does not exist yet (case-insensitive) is added; within an existing floor, only rooms that are not placed on any floor yet are appended. A room already placed anywhere stays where it is. If a merge would exceed a limit (20 floors, 200 rooms per floor, 200 pins, 1000 names) the import is rejected before anything is written.
+- **Pins:** devices and rooms are united; nothing is unpinned.
+
+Apply writes the personal names first and then the floors and pins, both through the same local routes used by the editors (`POST /api/local/mappings/import`, `PUT /api/local/layout`). They are two writes, not one transaction: if the second fails, the message states exactly what was imported (for example the names) and what was not (floors and pins); choosing the file again adds only what is missing. Importing the same file twice changes nothing the second time. The sample home's illustrative layout is not saved data, so it is neither exported nor merged; the sample home otherwise uses its own saved scope (`sample-home`). Restoring never writes to the gateway.
 
 Failed database writes show an error and are not presented as saved. Device controls remain independent. For a complete database backup, stop the server and copy `data/wiser.sqlite`; restore it while the server is stopped. JSON exports are portable, per-gateway backups. Files contain household labels and notes, so keep them private. Do not put credentials in personal notes.
 
-Only personal mappings are persisted so far. Discovered device inventory and live state are not cached, so editing a real installation in the UI still requires connecting. This is the next offline-configuration milestone.
+Only personal mappings, floors, and pins are persisted so far. Discovered device inventory and live state are not cached, so editing a real installation in the UI still requires connecting. This is the next offline-configuration milestone.
 
 ## Real gateway changes, separately
 

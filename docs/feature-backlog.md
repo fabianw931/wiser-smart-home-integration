@@ -14,7 +14,7 @@ These are proposals, not implemented features or permission to modify gateway co
 - Floors, zones, and tags alongside rooms, plus an option to hide unused channels without losing diagnostic access.
 - Reviewed room-wide lighting actions with per-device outcomes and partial-failure reporting. Keep blinds separate; no implicit all-device movement.
 - Favorite brightness/color presets, then scenes and schedules after verifying gateway ownership and firmware support. Explain whether a schedule runs on the gateway or requires this app to remain running.
-- Change history and undo for personal mappings; timestamped backups and a restore preview. Gateway changes need a separate audit trail and cannot promise universal undo.
+- Change history and undo for personal mappings; a retained history of timestamped backups (single-file export with restore preview already exists under Settings → Backup). Gateway changes need a separate audit trail and cannot promise universal undo.
 - Compare installer metadata against previous inventory snapshots; flag changed physical identities instead of silently reattaching personal labels.
 - Device capability summaries and actionable unavailable-state diagnostics, rather than requiring raw JSON inspection.
 

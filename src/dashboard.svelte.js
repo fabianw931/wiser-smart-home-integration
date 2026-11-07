@@ -1,7 +1,8 @@
 import { createApi } from './api.js';
 import { sampleHome } from './demo.js';
 import { validateLayout } from './layout.js';
-import { makeMapping, readMappings, saveMappings, exportMappings, importMappings } from './mappings.js';
+import { makeMapping, readMappings, saveMappings } from './mappings.js';
+import { exportConfiguration, configurationFilename, parseConfiguration, planImport, describePlan } from './configuration.js';
 import { decorate, buildHome, actionTargets, loadName, ACTIONS } from './home.js';
 
 export const RESOURCE_NAMES = ['info', 'rooms', 'buttons', 'sensors', 'westgroups', 'smartbuttons', 'devices', 'hvacgroups', 'hvacgroups/state'];
@@ -32,6 +33,7 @@ export class Dashboard {
   demo = $state(false);
   mappings = $state({});
   layout = $state(emptyLayout());
+  layoutIllustrative = $state(false); // sample home shows an illustrative layout that is not saved
   gatewayKey = $state('');
   storageNotice = $state('');
   mappingBusy = $state(false);
@@ -166,7 +168,7 @@ export class Dashboard {
   async #restoreLocal(key) {
     this.gatewayKey = key.toLowerCase();
     const current = this.epoch, scope = this.gatewayKey;
-    this.storageNotice = ''; this.mappings = {}; this.layout = emptyLayout();
+    this.storageNotice = ''; this.mappings = {}; this.layout = emptyLayout(); this.layoutIllustrative = false;
     try {
       const [mappings, layout] = await Promise.all([this.#api.request(this.#url('mappings', '', scope)), this.#api.request(this.#url('layout', '', scope))]);
       if (current !== this.epoch) return;
@@ -219,32 +221,65 @@ export class Dashboard {
     } catch (failure) { this.storageNotice = 'Details were not removed: ' + failure.message; }
   };
 
-  exportLocal = () => {
-    const url = URL.createObjectURL(new Blob([exportMappings(this.gatewayKey, this.mappings)], { type: 'application/json' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'wiser-personal-mappings.json'; link.click();
+  // Stored configuration of the current gateway. The sample home's illustrative layout is not stored, so it is not exported or merged.
+  #stored() { return { mappings: this.mappings, layout: this.layoutIllustrative ? emptyLayout() : this.layout }; }
+
+  downloadConfiguration = () => {
+    const now = new Date();
+    const text = exportConfiguration(this.gatewayKey, { ...this.#stored(), loads: this.loads, rooms: this.rooms }, now);
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const link = document.createElement('a'); link.href = url; link.download = configurationFilename(this.gatewayKey, now); link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  importLocal = async text => {
-    const imported = importMappings(text, this.gatewayKey);
-    if (await this.#changeMappings('/import', 'POST', { mappings: imported })) this.commandNotice = 'Mappings imported. Existing entries were kept; nothing was sent to the gateway.';
+  // Validate a file and work out what would change. Writes nothing; throws a readable error for invalid files.
+  previewImport = text => {
+    const imported = parseConfiguration(text, this.gatewayKey);
+    return { gateway: this.gatewayKey, imported, plan: planImport(this.#stored(), imported) };
   };
 
-  // Replace the layout. Optimistic in the UI, rolled back if the save fails.
-  saveLayout = async next => {
-    if (!this.gatewayKey) return false;
-    const previous = this.layout, current = this.epoch;
-    let valid;
-    try { valid = validateLayout(next); } catch (failure) { this.storageNotice = 'Layout not saved: ' + failure.message; return false; }
-    this.layout = valid; this.storageNotice = '';
+  // Apply a preview: mappings first, then the layout. A failure reports exactly what was and was not imported.
+  applyImport = async preview => {
+    if (!this.gatewayKey || preview.gateway !== this.gatewayKey) throw new Error('The connection changed. Nothing was imported.');
+    const plan = planImport(this.#stored(), preview.imported);
+    if (Object.keys(plan.mappings).length) {
+      try {
+        if (!(await this.#changeMappings('/import', 'POST', { mappings: plan.mappings }))) throw new Error('the connection changed');
+      } catch (failure) { throw new Error('Nothing was imported: ' + failure.message); }
+    }
+    if (plan.layout) {
+      try { await this.#writeLayout(plan.layout); }
+      catch (failure) {
+        throw new Error(plan.counts.names
+          ? `${describePlan({ counts: { ...plan.counts, floors: 0, rooms: 0, pins: 0, kept: 0 }, empty: false }, true)} The floors and pins were not imported: ${failure.message}`
+          : 'Nothing was imported: ' + failure.message);
+      }
+    }
+    const message = `${describePlan(plan, true)} Nothing was sent to the gateway.`;
+    this.commandNotice = message;
+    return message;
+  };
+
+  // Replace the layout and update the UI optimistically; rolled back and rethrown if the save fails.
+  async #writeLayout(next) {
+    const previous = this.layout, wasIllustrative = this.layoutIllustrative, current = this.epoch;
+    const valid = validateLayout(next);
+    this.layout = valid; this.layoutIllustrative = false;
     try {
       const result = await this.#api.request(this.#url('layout'), 'PUT', { layout: valid });
       if (current === this.epoch) this.layout = result.data;
-      return true;
     } catch (failure) {
-      if (current === this.epoch) { this.layout = previous; this.storageNotice = 'Layout not saved: ' + failure.message; }
-      return false;
+      if (current === this.epoch) { this.layout = previous; this.layoutIllustrative = wasIllustrative; }
+      throw failure;
     }
+  }
+
+  saveLayout = async next => {
+    if (!this.gatewayKey) return false;
+    const current = this.epoch;
+    this.storageNotice = '';
+    try { await this.#writeLayout(next); return true; }
+    catch (failure) { if (current === this.epoch) this.storageNotice = 'Layout not saved: ' + failure.message; return false; }
   };
 
   toggleFavoriteLoad = id => {
@@ -292,7 +327,7 @@ export class Dashboard {
     if (this.disconnecting) return;
     this.#resetLive(); clearTimeout(this.#resyncTimer);
     this.disconnecting = true;
-    this.demo = false; this.mappings = {}; this.layout = emptyLayout(); this.gatewayKey = ''; this.storageNotice = ''; this.mappingBusy = false; this.review = null;
+    this.demo = false; this.mappings = {}; this.layout = emptyLayout(); this.layoutIllustrative = false; this.gatewayKey = ''; this.storageNotice = ''; this.mappingBusy = false; this.review = null;
     this.epoch++;
     clearTimeout(this.#timer);
     this.#api.cancel();
@@ -326,7 +361,7 @@ export class Dashboard {
     const current = this.epoch;
     await this.#restoreLocal('sample-home');
     if (current !== this.epoch) return;
-    if (!this.layout.floors.length) this.layout = sample.layout;
+    if (!this.layout.floors.length) { this.layout = sample.layout; this.layoutIllustrative = true; }
     this.busy = false;
     this.error = ''; this.notice = 'Sample home — simulated equipment. No gateway connected.'; this.updated = null;
   };

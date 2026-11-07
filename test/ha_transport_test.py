@@ -8,7 +8,12 @@ import unittest
 package = types.ModuleType("workspace_transport_test")
 package.__path__ = [str(Path(__file__).resolve().parents[1] / "custom_components/wiser_workspace")]
 sys.modules[package.__name__] = package
-api = importlib.import_module("workspace_transport_test.api")
+try:
+    api = importlib.import_module("workspace_transport_test.api")
+except ModuleNotFoundError as error:
+    if error.name != "aiohttp":
+        raise
+    api = None
 
 
 class Response:
@@ -39,6 +44,7 @@ class Session:
         return self.response
 
 
+@unittest.skipIf(api is None, "Transport tests require aiohttp")
 class TransportTest(unittest.IsolatedAsyncioTestCase):
     async def test_auth_redirect_and_malformed_response(self):
         for response, error in [(Response(401), api.AuthError), (Response(403), api.ApiError),

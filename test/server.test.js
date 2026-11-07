@@ -914,3 +914,17 @@ test('disconnect during configuration preflight prevents PATCH after reconnect',
     } finally { release(); }
   }
 });
+
+test('a gateway from .env connects at startup and wins over nothing else; forgetting it lasts until restart', async t => {
+  const f = await fixture(t, { envGateway: { host: '127.0.0.1', token: 'fake-secret' } });
+  for (let attempt = 0; attempt < 50 && !(await f.request('/api/session')).body.connected; attempt++) await new Promise(resolve => setTimeout(resolve, 10));
+  const status = (await f.request('/api/session')).body;
+  assert.equal(status.connected, true);
+  assert.equal(status.host, '127.0.0.1');
+  assert.ok(!JSON.stringify(status).includes('fake-secret'));
+  assert.equal(f.calls.some(call => call.method !== 'GET'), false);
+  assert.equal(f.calls[0].token, 'Bearer fake-secret');
+  await f.request('/api/disconnect', 'POST');
+  assert.equal((await f.request('/api/session')).body.connected, false);
+  assert.equal((await f.request('/api/session')).body.remembered, false);
+});

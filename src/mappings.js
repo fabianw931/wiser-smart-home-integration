@@ -33,12 +33,3 @@ export function saveMappings(storage, gateway, mappings) {
   if (Object.keys(next).length) storage.setItem(MAPPING_KEY, JSON.stringify(next));
   else storage.removeItem(MAPPING_KEY);
 }
-export function exportMappings(gateway, mappings) {
-  return JSON.stringify({ version: 1, gateway, mappings: validateMappings(mappings) }, null, 2);
-}
-export function importMappings(text, gateway) {
-  if (text.length > 1024 * 1024) throw new Error('Mapping file is too large (maximum 1 MB).');
-  const data = JSON.parse(text);
-  if (!object(data) || data.version !== 1 || data.gateway !== gateway) throw new Error('Select a mapping file for this gateway.');
-  return validateMappings(data.mappings);
-}

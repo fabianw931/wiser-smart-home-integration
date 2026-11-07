@@ -34,7 +34,7 @@ Runs entirely on the home network, keeps credentials on the user's computer, and
 
 ## Brand Commitments
 
-Name shown as "Wiser by Feller" workspace. Existing light/dark/system appearance setting must remain. Tailwind + daisyUI built locally, no CDN.
+Name shown as "Wiser by Feller" workspace. Existing light/dark/system appearance setting must remain; Gruvbox and Catppuccin colour themes are optional additions. Tailwind + daisyUI built locally, no CDN.
 
 ## Evidence on Hand
 

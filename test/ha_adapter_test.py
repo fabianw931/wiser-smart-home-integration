@@ -75,6 +75,92 @@ class AdapterTest(unittest.TestCase):
             self.assertFalse(model.valid_state(entity))
 
 
+    def test_colour_kinds_and_ranges(self):
+        self.assertEqual(model.colour_kind({"unused": False, "type": "dali", "sub_type": "tw"}), "ct")
+        self.assertEqual(model.colour_kind({"unused": False, "type": "dali", "sub_type": "rgb"}), "rgbw")
+        for entity in ({"unused": False, "type": "dali", "sub_type": ""}, {"unused": False, "type": "dim"},
+                       {"unused": True, "type": "dali", "sub_type": "tw"}, {"unused": False, "type": "dali", "sub_type": "x"}):
+            self.assertIsNone(model.colour_kind(entity))
+        self.assertEqual([model.kelvin(x) for x in (1000, 4200, 20000)], [1000, 4200, 20000])
+        for value in (None, True, 999, 20001, 4200.0, "4200"):
+            self.assertIsNone(model.kelvin(value))
+        self.assertEqual(model.rgbw({"red": 1, "green": 2, "blue": 3, "white": 255}), (1, 2, 3, 255))
+        for state in (None, {}, {"red": 1, "green": 2, "blue": 3}, {"red": 1, "green": 2, "blue": 3, "white": 256},
+                      {"red": True, "green": 2, "blue": 3, "white": 0}):
+            self.assertIsNone(model.rgbw(state))
+        self.assertTrue(model.TW_MIN_KELVIN >= 1000 and model.TW_MAX_KELVIN <= 20000)
+
+    def test_turn_on_sends_only_what_the_user_changed(self):
+        tw = {"unused": False, "type": "dali", "sub_type": "tw", "state": {"bri": 5000, "ct": 3000}}
+        rgb = {"unused": False, "type": "dali", "sub_type": "rgb",
+               "state": {"bri": 5000, "red": 10, "green": 20, "blue": 30, "white": 40}}
+        # Plain turn-on of a lit load changes nothing; of an unlit one it means full brightness.
+        self.assertEqual(model.turn_on_target(tw), {})
+        self.assertEqual(model.turn_on_target({**tw, "state": {"bri": 0, "ct": 3000}}), {"bri": 10000})
+        self.assertEqual(model.turn_on_target(tw, brightness_value=255), {"bri": 10000})
+        self.assertEqual(model.turn_on_target(tw, kelvin_value=4200), {"ct": 4200})
+        self.assertEqual(model.turn_on_target(tw, kelvin_value=3000), {})
+        self.assertEqual(model.turn_on_target(tw, brightness_value=128, kelvin_value=2700), {"bri": 5020, "ct": 2700})
+        self.assertEqual(model.turn_on_target(rgb, rgbw_value=(10, 99, 30, 0)), {"green": 99, "white": 0})
+        self.assertEqual(model.turn_on_target(rgb, rgbw_value=(10, 20, 30, 40)), {})
+        self.assertEqual(model.turn_on_target(rgb, brightness_value=1, rgbw_value=[255, 20, 30, 40]), {"bri": 39, "red": 255})
+        # Brightness-only operation never needs colour state.
+        bare = {"unused": False, "type": "dali", "sub_type": "tw", "state": {"bri": 100}}
+        self.assertEqual(model.turn_on_target(bare, brightness_value=10), {"bri": 392})
+        with self.assertRaises(ValueError):
+            model.turn_on_target(bare, kelvin_value=4000)
+        with self.assertRaises(ValueError):
+            model.turn_on_target({**rgb, "state": {"bri": 1, "red": 1}}, rgbw_value=(1, 2, 3, 4))
+        for kwargs in ({"kelvin_value": 999}, {"kelvin_value": True}, {"rgbw_value": (1, 2, 3)}, {"rgbw_value": (1, 2, 3, 256)},
+                       {"brightness_value": 256}):
+            with self.assertRaises(ValueError):
+                model.turn_on_target(tw if "kelvin_value" in kwargs else rgb, **kwargs)
+        with self.assertRaises(ValueError):  # wrong colour capability
+            model.turn_on_target(tw, rgbw_value=(1, 2, 3, 4))
+        with self.assertRaises(ValueError):
+            model.turn_on_target(rgb, kelvin_value=3000)
+        with self.assertRaises(ValueError):  # unusable brightness
+            model.turn_on_target({**tw, "state": {"ct": 3000}})
+        onoff = {"unused": False, "type": "onoff", "state": {"bri": 0}}
+        self.assertEqual(model.turn_on_target(onoff, brightness_value=3), {"bri": 10000})
+        self.assertEqual(model.turn_on_target({**onoff, "state": {"bri": 10000}}), {})
+
+    def test_sensor_mapping_uses_documented_units_only(self):
+        temperature = {"type": "temperature", "unit": "\u2103", "value": 0}
+        self.assertEqual(model.sensor_spec(temperature), {"platform": "sensor", "device_class": "temperature", "unit": "\u00b0C"})
+        self.assertEqual(model.sensor_spec({"type": "temperature", "unit": "\u00b0C"})["unit"], "\u00b0C")
+        self.assertEqual(model.sensor_spec({"type": "illuminance", "unit": "lux"})["unit"], "lx")
+        self.assertEqual(model.sensor_spec({"type": "wind", "unit": "m/s"})["device_class"], "wind_speed")
+        self.assertEqual(model.sensor_spec({"type": "rain", "unit": "bool"})["platform"], "binary_sensor")
+        for sensor in ({"type": "temperature", "unit": "K"}, {"type": "wind", "unit": "km/h"}, {"type": "temperature"},
+                       {"type": "humidity", "unit": "%"}, {"type": "rain", "unit": "mm"}, {"unit": "lux"}, {"type": "wind", "unit": None}):
+            self.assertIsNone(model.sensor_spec(sensor))
+
+    def test_sensor_values_keep_zero_and_false_but_never_guess(self):
+        self.assertEqual(model.sensor_value({"type": "temperature", "unit": "\u2103", "value": 0}), 0)
+        self.assertEqual(model.sensor_value({"type": "temperature", "unit": "\u2103", "value": -4.5}), -4.5)
+        self.assertEqual(model.sensor_value({"type": "wind", "unit": "m/s", "value": 0}), 0)
+        self.assertIs(model.sensor_value({"type": "rain", "unit": "bool", "value": False}), False)
+        self.assertIs(model.sensor_value({"type": "hail", "unit": "bool", "value": 0}), False)
+        self.assertIs(model.sensor_value({"type": "hail", "unit": "bool", "value": 1}), True)
+        for sensor in ({"type": "temperature", "unit": "\u2103"}, {"type": "temperature", "unit": "\u2103", "value": "19"},
+                       {"type": "temperature", "unit": "\u2103", "value": True}, {"type": "temperature", "unit": "\u2103", "value": float("nan")},
+                       {"type": "wind", "unit": "m/s", "value": -1}, {"type": "illuminance", "unit": "lux", "value": -5},
+                       {"type": "rain", "unit": "bool", "value": 2}, {"type": "rain", "unit": "bool", "value": "yes"},
+                       {"type": "rain", "unit": "bool"}, {"type": "pressure", "unit": "hPa", "value": 1000}):
+            self.assertIsNone(model.sensor_value(sensor))
+
+    def test_sensor_names_and_physical_devices(self):
+        self.assertEqual(model.sensor_name({"name": " Terrace "}), "Terrace")
+        self.assertEqual(model.sensor_name({"id": 3, "type": "wind", "device": "00000124"}), "Wiser wind 00000124")
+        self.assertEqual(model.physical_device({"device": "0000a98f"}), "0000a98f")
+        for value in (None, "", "not hex!", 5, "x" * 65):
+            self.assertIsNone(model.physical_device({"device": value}))
+        self.assertTrue(model.identifiable_button({"device": "0000a98f", "channel": 0}))
+        for button in ({"device": "0000a98f", "channel": -1}, {"device": "0000a98f", "channel": True}, {"device": "?", "channel": 0}, {"channel": 1}):
+            self.assertFalse(model.identifiable_button(button))
+
+
 @unittest.skipIf(aiohttp is None, "Transport tests require uv run --with aiohttp")
 class TransportTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

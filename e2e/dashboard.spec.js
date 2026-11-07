@@ -143,6 +143,44 @@ test('appearance follows the system and remembers an explicit override', async (
   expect(writes(gateway)).toEqual([]);
 });
 
+const customThemes = [
+  { id: 'gruvbox-light', scheme: 'light' }, { id: 'gruvbox-dark', scheme: 'dark' },
+  { id: 'catppuccin-latte', scheme: 'light' }, { id: 'catppuccin-frappe', scheme: 'dark' },
+  { id: 'catppuccin-macchiato', scheme: 'dark' }, { id: 'catppuccin-mocha', scheme: 'dark' },
+];
+
+test('custom colour themes apply, persist across reloads and ignore the system scheme', async ({ page, gateway }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await connect(page, gateway);
+  await openSettings(page, 'Appearance');
+  const appearance = page.getByRole('combobox', { name: 'Appearance' });
+  expect(await appearance.locator('optgroup').evaluateAll(groups => groups.map(group => group.label))).toEqual(['Default', 'Gruvbox', 'Catppuccin']);
+  for (const { id, scheme } of customThemes) {
+    await appearance.selectOption(id);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', id);
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe(scheme);
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', id);
+    await expect(appearance).toHaveValue(id);
+    // The system scheme no longer matters once a theme is chosen explicitly.
+    await page.emulateMedia({ colorScheme: scheme === 'dark' ? 'light' : 'dark' });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', id);
+    await page.emulateMedia({ colorScheme: 'light' });
+  }
+  await appearance.selectOption('system');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  expect(writes(gateway)).toEqual([]);
+});
+
+test('an unknown stored appearance falls back to system', async ({ page, gateway }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.addInitScript(() => localStorage.setItem('wiser-appearance', 'solarized'));
+  await connect(page, gateway);
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await openSettings(page, 'Appearance');
+  await expect(page.getByRole('combobox', { name: 'Appearance' })).toHaveValue('system');
+});
+
 test('dark workspace supports controls, configuration, dialogs and mobile layouts', async ({ page, gateway }, testInfo) => {
   await savePersonalMapping(page, gateway);
   await page.getByText('Change gateway metadata…', { exact: true }).click();
@@ -465,24 +503,183 @@ test('installer changes reject pending gateway metadata without affecting person
   await expect(page.getByRole('article', { name: 'Entrance pendant', exact: true })).toBeVisible();
 });
 
-test('mapping export and import stay local and never include credentials', async ({ page, gateway }) => {
-  await savePersonalMapping(page, gateway);
+const localHeaders = { 'X-Wiser-Client': 'local-poc' };
+const stored = async (page, gateway, kind, scope = '127.0.0.1') => (await (await page.request.get(`${gateway.url}/api/local/${kind}?gateway=${scope}`, { headers: localHeaders })).json()).data;
+const importFile = (page, name, content) => page.getByLabel('Import configuration file').setInputFiles({ name, mimeType: 'application/json', buffer: Buffer.from(content) });
+const preview = page => page.getByRole('region', { name: 'Import preview' });
+
+async function exportConfiguration(page) {
   const downloaded = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export mappings' }).click();
+  await page.getByRole('button', { name: 'Export configuration', exact: true }).click();
   const download = await downloaded;
-  const stream = await download.createReadStream();
   const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  const text = Buffer.concat(chunks).toString('utf8');
+  for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+  return { filename: download.suggestedFilename(), text: Buffer.concat(chunks).toString('utf8') };
+}
+
+test('configuration export and import stay local, preview first, and never include credentials', async ({ page, gateway }) => {
+  await savePersonalMapping(page, gateway);
+  await openSettings(page, 'Backup');
+  await expect(page).toHaveURL(/#\/settings\/backup$/);
+  await expect(page.getByRole('main')).toContainText('Restoring only fills in what is missing');
+  await expect(page.getByRole('main')).toContainText('never writes to the gateway');
+  const { filename, text } = await exportConfiguration(page);
+  expect(filename).toMatch(/^wiser-configuration-127\.0\.0\.1-\d{4}-\d{2}-\d{2}\.json$/);
+  expect(text).not.toContain(gateway.token);
+  expect(text).not.toMatch(/token|scope|credential/i);
+  const data = JSON.parse(text);
+  expect(data).toMatchObject({ version: 2, kind: 'wiser-workspace-configuration', gateway: '127.0.0.1' });
+  expect(data.mappings['1'].name).toBe('Entrance pendant');
+  // The gateway's own name is recorded next to the personal one, for reference only.
+  expect(data.devices.find(device => device.id === 1)).toEqual({
+    id: 1, type: 'onoff', sub_type: null, device: 'fake-1', channel: 0,
+    gateway_name: 'Hall light', gateway_room: 'Hall', personal_name: 'Entrance pendant', personal_room: 'My studio', unused: false,
+  });
+  expect(data.devices).toHaveLength(10);
+
+  await openSettings(page, 'Names & notes');
+  await page.getByRole('button', { name: 'Remove local mapping' }).click();
+  await expect.poll(() => stored(page, gateway, 'mappings')).toEqual({});
+  await openSettings(page, 'Backup');
+  await importFile(page, 'configuration.json', text);
+  await expect(preview(page)).toContainText('Will add 1 personal name');
+  await expect(preview(page)).toContainText('Nothing has been saved yet');
+  expect(await stored(page, gateway, 'mappings')).toEqual({});
+  await preview(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(preview(page)).toHaveCount(0);
+  expect(await stored(page, gateway, 'mappings')).toEqual({});
+  await importFile(page, 'configuration.json', text);
+  await preview(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Added 1 personal name');
+  await expect(preview(page)).toHaveCount(0);
+  expect((await stored(page, gateway, 'mappings'))['1'].name).toBe('Entrance pendant');
+  await openSettings(page, 'Names & notes');
+  await expect(page.getByRole('article', { name: 'Mapping for Entrance pendant' })).toBeVisible();
+
+  // Version 1 mapping files from earlier releases are still accepted.
+  await page.getByRole('button', { name: 'Remove local mapping' }).click();
+  await expect.poll(() => stored(page, gateway, 'mappings')).toEqual({});
+  await openSettings(page, 'Backup');
+  await importFile(page, 'old.json', JSON.stringify({ version: 1, gateway: '127.0.0.1', mappings: data.mappings }));
+  await expect(preview(page)).toContainText('version 1');
+  await expect(preview(page)).toContainText('Will add 1 personal name');
+  await preview(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect.poll(async () => (await stored(page, gateway, 'mappings'))['1']?.name).toBe('Entrance pendant');
+
+  // Wrong gateway and malformed files change nothing and show no preview.
+  await importFile(page, 'wrong.json', JSON.stringify({ ...data, gateway: 'other-gateway' }));
+  await expect(page.getByRole('alert')).toContainText('for this gateway');
+  await expect(preview(page)).toHaveCount(0);
+  await importFile(page, 'bad.json', '{ not json');
+  await expect(page.getByRole('alert')).toContainText('not valid JSON');
+  expect(writes(gateway)).toEqual([]);
+});
+
+test('configuration round trip restores floors and pins, merges without overwriting and reports a partial failure', async ({ page, gateway }, testInfo) => {
+  await savePersonalMapping(page, gateway);
+  await home(page).click();
+  const living = page.getByRole('region', { name: 'Living room', exact: true });
+  let saved = layoutSaved(page);
+  await living.getByRole('button', { name: 'Pin Desk light', exact: true }).click();
+  await saved;
+  saved = layoutSaved(page);
+  await page.getByRole('button', { name: 'Pin room My studio', exact: true }).click();
+  await saved;
+  await openSettings(page, 'Rooms & floors');
+  saved = layoutSaved(page);
+  await page.getByLabel('New floor').fill('Ground floor');
+  await page.getByRole('button', { name: 'Add floor' }).click();
+  await saved;
+  saved = layoutSaved(page);
+  await page.getByLabel('Assign My studio to a floor').selectOption({ label: 'Ground floor' });
+  await saved;
+
+  await openSettings(page, 'Backup');
+  const { text } = await exportConfiguration(page);
   expect(text).not.toContain(gateway.token);
   const data = JSON.parse(text);
+  const layout = { floors: [{ name: 'Ground floor', rooms: ['My studio'] }], favorites: { loads: [2], rooms: ['My studio'] } };
+  expect(data.layout).toEqual(layout);
   expect(data.mappings['1'].name).toBe('Entrance pendant');
-  await page.getByRole('button', { name: 'Remove local mapping' }).click();
-  await page.getByLabel('Import mappings file').setInputFiles({ name: 'mappings.json', mimeType: 'application/json', buffer: Buffer.from(text) });
-  await expect(page.getByRole('article', { name: 'Mapping for Entrance pendant' })).toBeVisible();
-  await page.getByLabel('Import mappings file').setInputFiles({ name: 'wrong.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ ...data, gateway: 'other-gateway' })) });
-  await expect(page.getByRole('alert')).toContainText('for this gateway');
+
+  // Wipe everything for this gateway, then restore from the file.
+  const empty = { floors: [], favorites: { loads: [], rooms: [] } };
+  expect((await page.request.put(`${gateway.url}/api/local/layout?gateway=127.0.0.1`, { headers: localHeaders, data: { layout: empty } })).ok()).toBe(true);
+  expect((await page.request.delete(`${gateway.url}/api/local/mappings/1?gateway=127.0.0.1`, { headers: localHeaders })).ok()).toBe(true);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Backup' })).toBeVisible();
+  await importFile(page, 'configuration.json', text);
+  await expect(preview(page)).toContainText('Will add 1 personal name, 1 floor, 1 room placed on floors, 2 pinned items.');
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('backup-preview.png'), fullPage: true });
+  expect(await stored(page, gateway, 'layout')).toEqual(empty);
+  expect(await stored(page, gateway, 'mappings')).toEqual({});
+  await preview(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await stored(page, gateway, 'layout')).toEqual(empty);
+  expect(await stored(page, gateway, 'mappings')).toEqual({});
+
+  // A failing layout save after the mappings were written is reported precisely.
+  await page.route('**/api/local/layout?*', route => route.request().method() === 'PUT'
+    ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Database unavailable' }) })
+    : route.fallback());
+  await importFile(page, 'configuration.json', text);
+  await preview(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'not imported' })).toContainText('Added 1 personal name');
+  await expect(page.getByRole('alert').filter({ hasText: 'not imported' })).toContainText('The floors and pins were not imported: Database unavailable');
+  expect((await stored(page, gateway, 'mappings'))['1'].name).toBe('Entrance pendant');
+  expect(await stored(page, gateway, 'layout')).toEqual(empty);
+  await page.unroute('**/api/local/layout?*');
+
+  // Retry: only what is missing is added.
+  await importFile(page, 'configuration.json', text);
+  await expect(preview(page)).toContainText('Will add 1 floor, 1 room placed on floors, 2 pinned items; 1 entry already exists and is kept.');
+  saved = layoutSaved(page);
+  await preview(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await saved;
+  await expect(page.getByRole('status')).toContainText('Added 1 floor, 1 room placed on floors, 2 pinned items');
+  expect(await stored(page, gateway, 'layout')).toEqual(layout);
+  await home(page).click();
+  await expect(page.getByRole('group', { name: 'Floor', exact: true }).getByRole('button', { name: 'Ground floor', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Pinned', exact: true }).getByRole('article', { name: 'Desk light', exact: true })).toBeVisible();
+
+  // Importing again, or a file with other floors, never overwrites what exists.
+  await openSettings(page, 'Backup');
+  await importFile(page, 'configuration.json', text);
+  await expect(preview(page)).toContainText('Nothing new to add; 5 entries already exist and are kept.');
+  await expect(preview(page).getByRole('button', { name: 'Apply', exact: true })).toBeDisabled();
+  await preview(page).getByRole('button', { name: 'Cancel', exact: true }).click();
+  const other = { ...data, mappings: { 1: { ...data.mappings['1'], name: 'Replaced' } }, layout: { floors: [{ name: 'Ground floor', rooms: ['My studio', 'Living room'] }, { name: 'Attic', rooms: [] }], favorites: { loads: [2, 6], rooms: [] } } };
+  await importFile(page, 'other.json', JSON.stringify(other));
+  await expect(preview(page)).toContainText('Will add 1 floor, 1 room placed on floors, 1 pinned item; 4 entries already exist and are kept.');
+  saved = layoutSaved(page);
+  await preview(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await saved;
+  expect((await stored(page, gateway, 'mappings'))['1'].name).toBe('Entrance pendant');
+  expect(await stored(page, gateway, 'layout')).toEqual({ floors: [{ name: 'Ground floor', rooms: ['My studio', 'Living room'] }, { name: 'Attic', rooms: [] }], favorites: { loads: [2, 6], rooms: ['My studio'] } });
   expect(writes(gateway)).toEqual([]);
+});
+
+test('sample home exports and imports against its own saved scope', async ({ page, gateway }) => {
+  await page.goto(gateway.url);
+  await page.getByRole('button', { name: 'Explore sample home' }).click();
+  await expect(page.getByText('Simulated', { exact: true })).toBeVisible();
+  await openSettings(page, 'Backup');
+  await expect(page.getByRole('main')).toContainText('sample home');
+  const { text } = await exportConfiguration(page);
+  const data = JSON.parse(text);
+  expect(data.gateway).toBe('sample-home');
+  // The illustrative sample layout is not saved data and is not exported.
+  expect(data.layout).toEqual({ floors: [], favorites: { loads: [], rooms: [] } });
+  expect(data.devices).toHaveLength(7);
+  expect(data.devices[0]).toMatchObject({ id: 1, gateway_name: 'Pendant lights', gateway_room: 'Living room' });
+  await importFile(page, 'sample.json', JSON.stringify({ ...data, mappings: {}, layout: { floors: [], favorites: { loads: [3], rooms: [] } } }));
+  await expect(preview(page)).toContainText('Will add 1 pinned item');
+  const saved = layoutSaved(page);
+  await preview(page).getByRole('button', { name: 'Apply', exact: true }).click();
+  await saved;
+  expect(await stored(page, gateway, 'layout', 'sample-home')).toEqual({ floors: [], favorites: { loads: [3], rooms: [] } });
+  expect(await stored(page, gateway, 'layout')).toEqual({ floors: [], favorites: { loads: [], rooms: [] } });
+  expect(gateway.control.calls).toEqual([]);
 });
 
 test('sample home is offline and supports floors, search and simulated controls', async ({ page, gateway }, testInfo) => {

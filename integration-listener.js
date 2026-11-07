@@ -3,6 +3,7 @@ import http from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync, lstatSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { loadEnv } from './env.js';
 
 const digest = value => createHash('sha256').update(value).digest();
 const fail = (res, status) => {
@@ -75,6 +76,6 @@ export function startIntegrationListener(env = process.env) {
   } catch { throw new Error('Invalid integration listener configuration.'); }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try { startIntegrationListener(); }
+  try { loadEnv(); startIntegrationListener(); }
   catch { console.error('Invalid integration listener configuration.'); process.exitCode = 1; }
 }

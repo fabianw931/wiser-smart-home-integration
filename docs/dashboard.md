@@ -25,7 +25,7 @@ Commands send explicit targets, then refresh the reported states. An accepted ta
 
 ## Personal configuration
 
-**Settings → Names & notes** saves names, custom room labels, and notes in the local SQLite database. This is a personal mapping, not a draft for later automatic application. Save, remove, import, and export never send gateway commands. Mappings survive browser and server restarts and reconnects. **Export mappings** downloads a portable JSON backup.
+**Settings → Names & notes** saves names, custom room labels, and notes in the local SQLite database. This is a personal mapping, not a draft for later automatic application. Save, remove, import, and export never send gateway commands. Mappings survive browser and server restarts and reconnects. **Settings → Backup** exports names, notes, floors and pins as one portable JSON file (with a reference list of the gateway's own device names) and restores it through a preview; existing entries are kept.
 
 The collapsed **Change gateway metadata…** editor is separate. Its name and existing-room changes require review and **Apply this change to gateway** confirmation. It never copies personal labels automatically. The backend checks session scope, physical identity, expected metadata, and room existence. Installer changes detected at preflight reject the update, although no atomic conditional update is available.
 
