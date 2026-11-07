@@ -96,13 +96,11 @@ test('dashboard groups devices by room and edits personal details without gatewa
   await expect(page.getByRole('region', { name: 'Unassigned', exact: true }).getByRole('article', { name: 'DALI color', exact: true })).toBeVisible();
   const hall = page.getByRole('article', { name: 'Hall light', exact: true });
   await openMore(hall);
-  await hall.getByRole('button', { name: 'Rename or change room' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Edit device details' });
-  await dialog.getByLabel('Personal display name').fill('Entry pendant');
-  await dialog.getByLabel('Personal room', { exact: true }).fill('Entrance');
-  await dialog.getByLabel('Personal notes').fill('Check with installer');
-  await dialog.getByRole('button', { name: 'Save details' }).click();
-  await expect(dialog).toHaveCount(0);
+  const config = hall.getByRole('form', { name: 'Name and room for Hall light' });
+  await config.getByLabel('Name', { exact: true }).fill('Entry pendant');
+  await config.getByLabel('Room', { exact: true }).fill('Entrance');
+  await config.getByLabel('Notes').fill('Check with installer');
+  await config.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Entrance', exact: true }).getByRole('article', { name: 'Entry pendant' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Hall', exact: true })).toHaveCount(0);
   expect(writes(gateway)).toEqual([]);
@@ -112,18 +110,16 @@ test('dashboard groups devices by room and edits personal details without gatewa
   await expect(page.getByRole('region', { name: 'Entrance', exact: true }).getByRole('article', { name: 'Entry pendant' })).toBeVisible();
 });
 
-test('dashboard editing keeps unsaved input on failure and cancel leaves labels unchanged', async ({ page, gateway }) => {
+test('inline editing keeps unsaved input when the save fails and leaves labels unchanged', async ({ page, gateway }) => {
   await connect(page, gateway);
   await page.route('**/api/local/mappings/1?*', route => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Unavailable' }) }));
   const hall = page.getByRole('article', { name: 'Hall light', exact: true });
   await openMore(hall);
-  await hall.getByRole('button', { name: 'Rename or change room' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Personal display name').fill('Keep my input');
-  await dialog.getByRole('button', { name: 'Save details' }).click();
-  await expect(dialog.getByRole('alert')).toContainText('Could not save');
-  await expect(dialog.getByLabel('Personal display name')).toHaveValue('Keep my input');
-  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  const config = hall.getByRole('form', { name: 'Name and room for Hall light' });
+  await config.getByLabel('Name', { exact: true }).fill('Keep my input');
+  await config.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(config.getByRole('alert')).toContainText('Could not save');
+  await expect(config.getByLabel('Name', { exact: true })).toHaveValue('Keep my input');
   await expect(page.getByRole('article', { name: 'Hall light', exact: true })).toBeVisible();
   expect(writes(gateway)).toEqual([]);
 });

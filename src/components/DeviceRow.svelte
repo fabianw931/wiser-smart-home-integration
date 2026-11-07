@@ -1,8 +1,9 @@
 <script>
   import Icon from './Icon.svelte';
+  import DeviceConfig from './DeviceConfig.svelte';
   import { kindOf, levelOf, loadName, percent } from '../home.js';
 
-  let { load, snapshot, protection = null, favorite = false, idPrefix = '', disabled = false, stale = true, roomLabel = '', onwrite, onfavorite, onedit } = $props();
+  let { load, snapshot, protection = null, favorite = false, idPrefix = '', disabled = false, stale = true, roomLabel = '', onwrite, onfavorite, rooms = [], onsaveconfig } = $props();
 
   const name = $derived(loadName(load));
   const kind = $derived(kindOf(load));
@@ -129,7 +130,7 @@
             onchange={event => settleChannel(channel, Number(event.currentTarget.value))} /></label>
       {/each}
       {#if rgb}<span class="swatch" style:background={rgb} role="img" aria-label={`Reported color: red ${snapshot.red}, green ${snapshot.green}, blue ${snapshot.blue}`}></span>{/if}
-      {#if onedit}<button class="btn btn-ghost" type="button" onclick={() => onedit(load)}>Rename or change room</button>{/if}
+      {#if onsaveconfig}<DeviceConfig {load} {rooms} {idPrefix} onsave={onsaveconfig} />{/if}
       <p class="muted small">Load {load.id} · {load.type}{subtype ? ` / ${subtype}` : ''} · device {load.device ?? 'unknown'} · channel {load.channel ?? 'unknown'}</p>
       {#if load.notes}<p class="notes small">{load.notes}</p>{/if}
       <pre class="small">{JSON.stringify(snapshot ?? null, null, 2)}</pre>

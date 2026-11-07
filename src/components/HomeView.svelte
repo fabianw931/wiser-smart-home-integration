@@ -6,7 +6,7 @@
   import WeatherStrip from './WeatherStrip.svelte';
   import { buildHome, summarize, loadName, protectionFor, kindOf } from '../home.js';
 
-  let { dash, onedit, onnavigate } = $props();
+  let { dash, onnavigate } = $props();
 
   let floorTab = $state('all');
   let query = $state('');
@@ -73,13 +73,13 @@
     <section class="pinned" aria-labelledby="pinned-heading">
       <h2 id="pinned-heading"><Icon name="star" size={16} /> Pinned</h2>
       {#each pinnedRooms as room (room.key)}
-        <RoomBlock {room} {dash} {protection} expanded={isOpen(room.key)} ontoggle={() => toggle(room.key)} {onedit} />
+        <RoomBlock {room} {dash} {protection} expanded={isOpen(room.key)} ontoggle={() => toggle(room.key)} />
       {/each}
       {#if pinnedLoads.length}
         <div class="devices pinned-devices">
           {#each pinnedLoads as load (load.id)}
             <DeviceRow {load} snapshot={dash.states[load.id]} protection={protection.get(load.id) ?? null} favorite={true} idPrefix="pinned-" roomLabel={roomLabel(load)}
-              disabled={!dash.active} stale={dash.stale} onwrite={dash.write} onfavorite={dash.toggleFavoriteLoad} {onedit} />
+              disabled={!dash.active} stale={dash.stale} onwrite={dash.write} onfavorite={dash.toggleFavoriteLoad} rooms={dash.roomNames} onsaveconfig={dash.saveLocal} />
           {/each}
         </div>
       {/if}
@@ -90,7 +90,7 @@
     <section class="floor" aria-label={floor.name || 'Rooms'}>
       {#if floor.name}<h2 class="floor-title">{floor.name}</h2>{/if}
       {#each floor.rooms as room (room.key)}
-        <RoomBlock {room} {dash} {protection} expanded={isOpen(room.key)} ontoggle={() => toggle(room.key)} {onedit} />
+        <RoomBlock {room} {dash} {protection} expanded={isOpen(room.key)} ontoggle={() => toggle(room.key)} />
       {/each}
     </section>
   {/each}

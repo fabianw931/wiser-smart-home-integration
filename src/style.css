@@ -261,3 +261,6 @@ details.diag { margin-bottom: 8px; }
   .subnav button { white-space: nowrap; flex: none; }
   .facts > div { grid-template-columns: 1fr; gap: 2px; }
 }
+
+.config { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper); }
+.config .input, .config .textarea { width: 100%; }

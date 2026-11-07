@@ -8,7 +8,6 @@
   import HomeView from './components/HomeView.svelte';
   import SettingsView from './components/SettingsView.svelte';
   import InstallationPanel from './components/InstallationPanel.svelte';
-  import QuickEditor from './components/QuickEditor.svelte';
   import ReviewDialog from './components/ReviewDialog.svelte';
 
   const dash = new Dashboard();
@@ -21,7 +20,6 @@
   }
   let route = $state(parse());
   let sensorKind = $state('Weather');
-  let editingLoad = $state(null);
 
   function go(page, section) {
     const next = { page, section: section ?? (page === 'settings' ? route.section : 'floors') };
@@ -55,7 +53,7 @@
     {#if !dash.busy}<p class="center muted small" role="status">{dash.notice}</p>{/if}
   {:else if view === 'home'}
     <h1 class="sr-only">Home</h1>
-    <HomeView {dash} onedit={load => (editingLoad = { ...load })} onnavigate={go} />
+    <HomeView {dash} onnavigate={go} />
   {:else if view === 'sensors'}
     <div class="page-head">
       <h1>Sensors &amp; buttons</h1>
@@ -75,4 +73,3 @@
 </main>
 
 <ReviewDialog {dash} />
-{#if editingLoad}<QuickEditor load={editingLoad} rooms={dash.roomNames} onsave={dash.saveLocal} onclose={() => (editingLoad = null)} />{/if}

@@ -5,7 +5,7 @@
   import QuickActions from './QuickActions.svelte';
   import { summarize, glyphs as toGlyphs } from '../home.js';
 
-  let { room, dash, protection, expanded = false, ontoggle, onedit } = $props();
+  let { room, dash, protection, expanded = false, ontoggle } = $props();
 
   const states = $derived(dash.states);
   const sum = $derived(summarize(room.loads, states));
@@ -36,7 +36,7 @@
     <div class="devices" id={`devices-${slug}`}>
       {#each room.loads as load (load.id)}
         <DeviceRow {load} snapshot={states[load.id]} protection={protection.get(load.id) ?? null} favorite={dash.layout.favorites.loads.includes(load.id)}
-          disabled={!dash.active} stale={dash.stale} onwrite={dash.write} onfavorite={dash.toggleFavoriteLoad} {onedit} />
+          disabled={!dash.active} stale={dash.stale} onwrite={dash.write} onfavorite={dash.toggleFavoriteLoad} rooms={dash.roomNames} onsaveconfig={dash.saveLocal} />
       {/each}
     </div>
   {/if}

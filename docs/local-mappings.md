@@ -18,7 +18,7 @@ Personal configuration and device control are independent. Connected lights and 
 
 Open **Settings → Names & notes**, choose a load, and enter a personal display name, room label, and notes. Choose **Save local mapping**. These labels appear on Home and in its room filter immediately. Room labels are free text: you can organize your home before the installer has finished creating gateway rooms.
 
-On **Home**, choose **Edit details** below any device to edit the same personal name, room, and notes without navigating away. Saving moves the device to its personal room group immediately. Cancel leaves labels unchanged; a failed save retains your input for retry. The dashboard defaults to room groups, with device-type and flat-list alternatives under **Group devices by**. These groups organize the dashboard; they do not create gateway rooms or DALI groups.
+On **Home**, open **More** on any device and use its **Name & room** section to edit the same personal name, room, and notes without navigating away. Saving moves the device to its personal room group immediately. Cancel leaves labels unchanged; a failed save retains your input for retry. The dashboard defaults to room groups, with device-type and flat-list alternatives under **Group devices by**. These groups organize the dashboard; they do not create gateway rooms or DALI groups.
 
 Saving, removing, importing, or exporting personal mappings makes no gateway requests. A mapping is your own dashboard organization, not a pending change to be applied to the installation. Changes to the installer's names or rooms do not overwrite your labels.
 
