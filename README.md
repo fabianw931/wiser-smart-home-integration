@@ -44,7 +44,7 @@ Use **Settings → Appearance** to choose **System**, **Light**, **Dark**, **Gru
 
 ### Home Assistant and automations
 
-An opt-in machine API provides snapshots and identity-checked targets. The [native HA integration](docs/ha-native.md) creates lights and covers through a [separate HTTPS listener](docs/integration-listener.md). Neither is deployed automatically; TLS and VM-restricted access must be provisioned first. The browser app remains localhost-only. Use HA as the automation engine; no schedules are installed.
+An opt-in machine API (set `WISER_INTEGRATION_TOKEN` in `.env`; `npm start` then also starts its separate listener) gives Home Assistant lights, blinds, weather sensors and button identification through the [native HA integration](docs/ha-native.md). It is read-only unless `WISER_INTEGRATION_CONTROL=1`, serves snapshots from a cache so the gateway sees about 5 requests per minute however often Home Assistant polls, and pushes live changes over a long-lived stream. The listener defaults to HTTPS but is usually run as explicit, opt-in plain HTTP on a trusted LAN (`WISER_API_TLS=0`, `WISER_API_BIND=<LAN address>`; the token then travels unencrypted, in the same exposure class as the gateway's own HTTP). The browser app itself stays localhost-only. See the [listener guide](docs/integration-listener.md) for settings and the handover safe-mode checklist. Use HA as the automation engine; no schedules are installed. **Settings → Diagnostics → Gateway events (raw)** shows undocumented gateway messages (for example a button press) to help learn their format.
 
 ### Safety and limitations
 

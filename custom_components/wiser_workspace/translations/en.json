@@ -1,7 +1,53 @@
 {
   "config": {
-    "step": {"user": {"title": "Connect Wiser Workspace", "description": "Use the trusted HTTPS machine API origin and its separate integration token.", "data": {"url": "HTTPS origin", "token": "Integration token"}}},
-    "error": {"invalid_url": "Enter an HTTPS origin without a path, query, or credentials.", "invalid_auth": "The integration token was rejected.", "cannot_connect": "Cannot fetch a valid workspace snapshot. Check connectivity, TLS trust, and the gateway connection."},
-    "abort": {"already_configured": "This gateway is already configured.", "wrong_gateway": "The endpoint now serves a different gateway.", "reauth_successful": "Credentials updated."}
+    "step": {
+      "user": {
+        "title": "Connect Wiser Workspace",
+        "description": "Enter the address of the computer that runs the Wiser Workspace app and its integration token. Plain HTTP is unencrypted: use it only on a network you trust. HTTPS needs a certificate that Home Assistant trusts.",
+        "data": {
+          "host": "IP address or hostname",
+          "port": "Port",
+          "ssl": "Use HTTPS",
+          "token": "Integration token"
+        },
+        "data_description": {
+          "host": "Address of the computer running the app, without http:// or a path.",
+          "port": "The app's integration listener port (3443 by default).",
+          "ssl": "Leave off for the default plain HTTP listener. Certificate verification cannot be disabled.",
+          "token": "WISER_INTEGRATION_TOKEN from the app's .env file."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Replace the Wiser Workspace token",
+        "description": "The integration token was rejected. Enter the current WISER_INTEGRATION_TOKEN of the app.",
+        "data": {
+          "host": "IP address or hostname",
+          "port": "Port",
+          "ssl": "Use HTTPS",
+          "token": "Integration token"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the Wiser Workspace connection",
+        "description": "Update the address of the app, for example after its computer got a new IP address. It must still serve the same gateway.",
+        "data": {
+          "host": "IP address or hostname",
+          "port": "Port",
+          "ssl": "Use HTTPS",
+          "token": "Integration token"
+        }
+      }
+    },
+    "error": {
+      "invalid_url": "Enter an IP address or hostname without http://, a path or credentials, and a port from 1 to 65535.",
+      "invalid_auth": "The integration token was rejected.",
+      "cannot_connect": "Cannot fetch a valid workspace snapshot. Check the address, port, HTTP/HTTPS choice, firewall, that the app is connected to the gateway, and (for HTTPS) that the certificate is trusted."
+    },
+    "abort": {
+      "already_configured": "This gateway is already configured.",
+      "wrong_gateway": "The endpoint now serves a different gateway.",
+      "reauth_successful": "Credentials updated.",
+      "reconfigure_successful": "Connection updated."
+    }
   }
 }

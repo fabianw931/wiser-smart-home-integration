@@ -1,4 +1,6 @@
 """Pure, conservative API validation and unit conversions."""
+import ipaddress
+import json
 import math
 import re
 import unicodedata
@@ -22,17 +24,74 @@ SENSOR_SPECS = {
 BINARY_SENSORS = ("rain", "hail")
 
 
-def base_url(value):
-    """Accept only HTTPS origins; never send credentials to URL userinfo."""
+_HOST_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
+_TOKEN = re.compile(r"[\x21-\x7e]{1,512}")
+
+
+def base_url(value, *, allow_http=False):
+    """Accept only HTTPS origins (plain HTTP only when the caller opted in); never allow URL userinfo."""
     if not isinstance(value, str) or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value):
         raise ValueError("URL whitespace and control characters are forbidden")
     parsed = urlsplit(value)
-    if (parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
-            or parsed.password is not None or parsed.query or parsed.fragment
+    if (parsed.scheme not in (("https", "http") if allow_http else ("https",)) or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment
             or parsed.path not in ("", "/")):
-        raise ValueError("An HTTPS origin without credentials or a path is required")
-    _ = parsed.port
+        raise ValueError("An origin without credentials or a path is required (HTTPS unless HTTP was chosen)")
+    if parsed.port == 0:
+        raise ValueError("Invalid port")
     return value.rstrip("/")
+
+
+def validate_host(value):
+    """Normalised IP address or DNS name; no scheme, port, path, userinfo, zone or whitespace inside."""
+    if not isinstance(value, str):
+        raise ValueError("Invalid host")
+    host = value.strip()
+    bracketed = host.startswith("[") and host.endswith("]")
+    if bracketed:
+        host = host[1:-1]
+    if not host or len(host) > 253 or "%" in host:
+        raise ValueError("Invalid host")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None:
+        if address.is_unspecified or address.is_multicast:
+            raise ValueError("Invalid host")
+        return str(address)
+    labels = host.split(".")
+    if bracketed or not all(_HOST_LABEL.fullmatch(label) for label in labels) or all(label.isdigit() for label in labels):
+        raise ValueError("Invalid host")
+    return host.lower()
+
+
+def validate_port(value):
+    """TCP port as int; accepts integral floats because Home Assistant's number selector returns them."""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    if type(value) is not int or not 1 <= value <= 65535:
+        raise ValueError("Invalid port")
+    return value
+
+
+def validate_token(value):
+    """Header-safe token text (the app decides whether it is correct)."""
+    if not isinstance(value, str):
+        raise ValueError("Invalid token")
+    token = value.strip()
+    if not _TOKEN.fullmatch(token):
+        raise ValueError("Invalid token")
+    return token
+
+
+def build_url(host, port, use_ssl):
+    """Origin for the flow's host, port and HTTPS toggle. Plain HTTP exists only when use_ssl is False."""
+    if not isinstance(use_ssl, bool):
+        raise ValueError("Invalid HTTPS setting")
+    host = validate_host(host)
+    netloc = f"[{host}]" if ":" in host else host
+    return base_url(f"{'https' if use_ssl else 'http'}://{netloc}:{validate_port(port)}", allow_http=not use_ssl)
 
 
 def ranged(value, minimum, maximum):
@@ -200,8 +259,29 @@ def identifiable_button(button):
     return physical_device(button) is not None and ranged(button.get("channel"), 0, 2 ** 31)
 
 
+def button_name(button):
+    value = button.get("name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return f"Wiser button {button.get('device')} channel {button.get('channel')}"
+
+
+def _unique_items(values, require_id):
+    """Valid, identity-unique dict items; optional collections never invalidate a snapshot, malformed items are dropped."""
+    items, seen = [], set()
+    for item in values if isinstance(values, list) else ():
+        if (isinstance(item, dict) and isinstance(item.get("identity"), str) and IDENTITY.fullmatch(item["identity"])
+                and item["identity"] not in seen and (not require_id or (type(item.get("id")) is int and item["id"] >= 0))):
+            seen.add(item["identity"])
+            items.append(item)
+    return items
+
+
 def snapshot(value):
-    """Reject malformed snapshots rather than retaining apparent success."""
+    """Reject malformed snapshots rather than retaining apparent success.
+
+    Returns a shallow copy whose sensors and buttons are always lists (older apps omit them).
+    """
     if (not isinstance(value, dict) or type(value.get("version")) is not int or value["version"] != 1
             or not isinstance(value.get("gateway"), str) or not value["gateway"]
             or not isinstance(value.get("scope"), str) or not value["scope"]
@@ -215,7 +295,8 @@ def snapshot(value):
                 or not IDENTITY.fullmatch(entity["identity"])):
             raise ValueError("Invalid entity identity")
         ids.add(entity["id"])
-    return value
+    return {**value, "sensors": _unique_items(value.get("sensors"), True),
+            "buttons": _unique_items(value.get("buttons"), False)}
 
 
 def labels(entity):
@@ -225,3 +306,59 @@ def labels(entity):
         return value.strip() if isinstance(value, str) and value.strip() else None
     name = text("name") or text("gateway_name") or f"Wiser load {entity.get('id')}"
     return {"name": name, "room": text("room"), "gateway_name": text("gateway_name"), "gateway_room": text("gateway_room")}
+
+
+_MISSING = object()
+
+
+def parse_event_line(line):
+    """One NDJSON line (bytes or str) as an event dict with a string type and scope, otherwise None."""
+    try:
+        value = json.loads(line)
+    except (ValueError, RecursionError):
+        return None
+    if isinstance(value, dict) and isinstance(value.get("type"), str) and isinstance(value.get("scope"), str):
+        return value
+    return None
+
+
+def apply_event(snap, event):
+    """Copy-on-write application of a 'load' event to a snapshot.
+
+    Returns a new snapshot, or None when the event changes nothing: another type, another scope, an unknown
+    load, or only invalid fields. Valid fields merge into the reported state; null drops a field (the
+    observation is no longer valid); out-of-range or mistyped values and unknown fields are ignored.
+    Neither argument is mutated.
+    """
+    if not isinstance(snap, dict) or not isinstance(event, dict):
+        return None
+    if event.get("type") != "load" or event.get("scope") != snap.get("scope"):
+        return None
+    load_id, patch, entities = event.get("id"), event.get("state"), snap.get("entities")
+    if type(load_id) is not int or not isinstance(patch, dict) or not isinstance(entities, list):
+        return None
+    index = next((i for i, entity in enumerate(entities) if isinstance(entity, dict) and entity.get("id") == load_id), None)
+    if index is None:
+        return None
+    current = entities[index].get("state")
+    state = dict(current) if isinstance(current, dict) else {}
+    changed = False
+    for key, value in patch.items():
+        bounds = STATE_RANGES.get(key)
+        if bounds is None:
+            continue
+        if value is None:
+            changed |= state.pop(key, _MISSING) is not _MISSING
+        elif ranged(value, *bounds) and state.get(key, _MISSING) != value:
+            state[key] = value
+            changed = True
+    if not changed:
+        return None
+    updated = list(entities)
+    updated[index] = {**entities[index], "state": state}
+    return {**snap, "entities": updated}
+
+
+def backoff_delay(attempt, base=1.0, cap=60.0):
+    """Seconds to wait before reconnect number `attempt` (0-based): base, 2*base, ... capped."""
+    return min(cap, base * 2 ** min(max(attempt, 0), 32))

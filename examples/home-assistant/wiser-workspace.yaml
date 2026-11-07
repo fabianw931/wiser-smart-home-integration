@@ -1,9 +1,11 @@
-# Starter Home Assistant package; not installed or enabled by this repository.
-# Requires app + HA in the SAME network namespace (127.0.0.1).
-# secrets.yaml: wiser_workspace_authorization: "Bearer <integration-token>"
-# Do not substitute a remote address until a separately secured deployment exists.
+# Starter Home Assistant package for the REST-only alternative to the native integration (docs/ha-native.md).
+# Prefer the native integration; this file is not installed or enabled by this repository.
+# secrets.yaml:
+#   wiser_workspace_authorization: "Bearer <WISER_INTEGRATION_TOKEN from the app's .env>"
+# Replace 192.168.1.50:3443 below with the LAN address and port of the computer running the app (https:// if its
+# listener uses TLS that HA trusts). Plain HTTP sends the token unencrypted: trusted LAN only. Writes also need WISER_INTEGRATION_CONTROL=1 in the app.
 rest:
-  - resource: http://127.0.0.1:3000/api/integration/v1/snapshot
+  - resource: http://192.168.1.50:3443/api/integration/v1/snapshot
     headers:
       Authorization: !secret wiser_workspace_authorization
     scan_interval: 30
@@ -19,13 +21,13 @@ rest:
 
 rest_command:
   wiser_workspace_snapshot:
-    url: http://127.0.0.1:3000/api/integration/v1/snapshot
+    url: http://192.168.1.50:3443/api/integration/v1/snapshot
     method: GET
     timeout: 35
     headers:
       Authorization: !secret wiser_workspace_authorization
   wiser_workspace_target:
-    url: "http://127.0.0.1:3000/api/integration/v1/loads/{{ load_id | int }}/target"
+    url: "http://192.168.1.50:3443/api/integration/v1/loads/{{ load_id | int }}/target"
     method: PUT
     timeout: 25
     headers:

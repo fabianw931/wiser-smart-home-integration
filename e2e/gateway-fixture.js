@@ -106,6 +106,8 @@ export const test = base.extend({
       states.set(id, { ...states.get(id), ...patch });
       for (const socket of sockets?.clients || []) socket.send(JSON.stringify({ load: { id, state: patch } }));
     };
+    // Sends any message exactly as given (objects are JSON-encoded), to observe how the app treats undocumented gateway events.
+    control.pushRaw = message => { for (const socket of sockets?.clients || []) socket.send(typeof message === 'string' ? message : JSON.stringify(message)); };
     control.dropLive = () => { for (const socket of sockets?.clients || []) socket.terminate(); };
     const port = await listen(fake);
     const app = createApp({ gatewayPort: port, timeout: 10000, liveEnabled: liveUpdates, credentialDir: join(mkdtempSync(join(tmpdir(), 'wiser-browser-')), 'credentials') });

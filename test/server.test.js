@@ -47,11 +47,12 @@ async function fixture(t, { onGateway, ...options } = {}) {
     if (req.url === '/api/loads/state') data = [{ id: 1, state: { bri: 10000 } }];
     if (/^\/api\/loads\/[1-4]$/.test(req.url)) data = { id: Number(req.url.split('/').at(-1)), name: 'Light', type: 'onoff', room: 0 };
     if (req.url === '/api/rooms') data = [{ id: 0, name: 'Ground floor' }, { id: 2, name: 'Office' }];
+    if (req.url === '/api/sensors' || req.url === '/api/buttons') data = [];
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ status: 'success', data }));
   });
   const port = await listen(gateway);
-  const app = createApp({ gatewayPort: port, timeout: 1000, ...options });
+  const app = createApp({ gatewayPort: port, timeout: 1000, snapshotTtl: 0, ...options });
   const appPort = await listen(app);
   t.after(async () => { await close(app); await close(gateway); });
   async function request(path, method = 'GET', payload, headers = {}) {

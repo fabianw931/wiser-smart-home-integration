@@ -91,7 +91,10 @@ export function actionTargets(action, loads, states) {
   const spec = ACTIONS[action];
   return loads.filter(load => kindOf(load) === spec.kind).filter(load => {
     const level = levelOf(load, states[load.id]);
-    return level !== null && level !== spec.value;
+    if (level === null) return false;
+    // A blind that is still travelling away from the goal reports its start level (e.g. level 0 while moving down), so level alone would skip it.
+    if (spec.kind === 'blind' && states[load.id]?.moving === (spec.value === 0 ? 'down' : 'up')) return true;
+    return level !== spec.value;
   });
 }
 

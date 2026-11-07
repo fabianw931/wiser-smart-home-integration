@@ -1,24 +1,65 @@
 # Home Assistant machine listener
 
-The browser application remains bound to localhost. Run a separate HTTPS listener for the Home Assistant VM using `node integration-listener.js` (or `npm run start:integration`). It only proxies authenticated `GET /api/integration/v1/snapshot` and `PUT /api/integration/v1/loads/<id>/target` requests to the local application. Configuration, browser pages, cookies, static files, redirects, and query strings are excluded. Browser Origin and browser fetch metadata requests are refused.
+The browser application always stays bound to `127.0.0.1`. When `WISER_INTEGRATION_TOKEN` is set, `node server.js` (`npm start`) also starts a second, separate listener for Home Assistant in the same process. It proxies only a fixed list of authenticated requests to the app over loopback; configuration, browser pages, cookies, static files, redirects and query strings are excluded, and requests carrying a browser `Origin` or cross-site fetch metadata are refused. `npm run start:integration` still runs the same listener standalone (do not run both at once: the port is taken).
 
-Configure both processes with the same `WISER_INTEGRATION_TOKEN`, containing 32–256 URL-safe ASCII characters. Generate and store it using your secret manager; never put it in source control. The application separately requires `WISER_INTEGRATION_CONTROL=1` for writes. Send the token as `Authorization: Bearer <token>`.
+## Allowed requests
 
-Listener settings:
-
-| Environment variable | Purpose | Default |
+| Request | Needs `WISER_INTEGRATION_CONTROL=1` | Purpose |
 | --- | --- | --- |
-| `WISER_TLS_CERT` | PEM certificate and intermediate chain | Required |
-| `WISER_TLS_KEY` | PEM private key | Required |
-| `WISER_INTEGRATION_TOKEN` | Shared bearer token | Required |
-| `WISER_API_BIND` | Listener address | `127.0.0.1` |
-| `WISER_API_PORT` | HTTPS port | `3443` |
-| `WISER_LOCAL_PORT` | Local application port | `3000` |
+| `GET /api/integration/v1/snapshot` | no | Loads, states, sensors and buttons from the app's cache |
+| `GET /api/integration/v1/events` | no | Long-lived NDJSON stream of live state changes |
+| `PUT /api/integration/v1/loads/<id>/target` | yes | Command a light or blind |
+| `PUT /api/integration/v1/buttons/identify` | yes | Flash one wall button's LED for two seconds |
 
-On POSIX, the private key must be a regular file owned by the listener account with no group or other permissions (for example mode `0600`). Symlinks are refused. Provision a certificate whose DNS SAN matches the name Home Assistant uses, issued by a CA trusted by that VM. Keep certificate verification enabled in Home Assistant. The self-signed certificate used by automated tests is not a production deployment recipe.
+Everything else is 404. Every request needs `Authorization: Bearer <token>`. Request bodies are limited to 8 KiB and ordinary responses to 2 MiB. The event stream has no size cap (it is endless by design) but a silent upstream is dropped after 65 seconds; the app sends a heartbeat every 20 seconds.
 
-The upstream is always `http://127.0.0.1:<WISER_LOCAL_PORT>`; an arbitrary upstream URL cannot be configured. Requests are limited to 8 KiB and responses to 2 MiB. The listener times out after 40 seconds; the application's snapshot work must finish within its 30-second bound. Only the bearer token and JSON content type are forwarded. Upstream failures return generic errors.
+## Configuration (`.env`)
 
-Remote reachability requires a dedicated service, an explicit private interface bind address, and firewall rules restricted to the Home Assistant VM. Keep the application port bound to localhost and inaccessible from the VM. Deploying a service, opening a firewall, distributing secrets, and installing certificates are separate operational actions requiring user authorization; this implementation performs none of them. Confirm the chosen address, DNS name, certificate provisioning, service account, and VM source address before deployment.
+Put these in `.env` (see `.env.example`; `chmod 600 .env`). Shell variables win over the file.
 
-Validate from the VM with a CA-verified HTTPS snapshot request, then verify that the browser root and `/api/config` return errors and that the original application port cannot be reached remotely. Start with read-only snapshots before enabling target writes. Run `node --test test/integration-listener.test.js` for local HTTPS proxy checks.
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `WISER_INTEGRATION_TOKEN` | Shared bearer token, 32–256 characters `A-Za-z0-9_-`. Setting it enables the integration | off |
+| `WISER_INTEGRATION_CONTROL` | `1` allows the two write routes | read-only |
+| `WISER_API_TLS` | `0` = plain HTTP, unset/`1` = HTTPS | HTTPS |
+| `WISER_API_BIND` | Address to listen on. **Required** for plain HTTP | HTTPS: `127.0.0.1` |
+| `WISER_API_PORT` | Port | `3443` |
+| `WISER_SNAPSHOT_TTL` | Seconds between gateway reads for snapshots, 15–3600 | `60` |
+| `WISER_TLS_CERT`, `WISER_TLS_KEY` | PEM certificate (with chain) and private key, HTTPS only | – |
+
+If the listener cannot start (bad address, missing certificate, port in use) the reason is printed as `Home Assistant integration API NOT started: …` and the dashboard keeps running.
+
+## Plain HTTP on the LAN (the usual setup)
+
+```
+WISER_INTEGRATION_TOKEN=<random>
+WISER_API_TLS=0
+WISER_API_BIND=192.168.1.50
+```
+
+Plain HTTP is an explicit opt-in. It has no default address, so it can never expose itself by accident: you must name the interface. A concrete LAN address is the safest choice; `0.0.0.0` (or `::`) is accepted only when typed deliberately and is called out in the startup line. At startup the app prints, once:
+
+> Home Assistant integration API: http://192.168.1.50:3443 WITHOUT TLS - the integration token travels unencrypted on the network (the same exposure class as the gateway's own HTTP). Use only on a trusted LAN and never forward this port.
+
+Everyone who can sniff that network segment can read the token. The token cannot open the gateway (the app holds that credential) and, without `WISER_INTEGRATION_CONTROL=1`, can only read; but treat it as a secret and keep it out of source control. Never forward the port to the Internet, and do not expose the app's own port (3000); it stays on loopback regardless.
+
+## Optional HTTPS
+
+Leave `WISER_API_TLS` unset and provide `WISER_TLS_CERT` and `WISER_TLS_KEY`. On POSIX the key must be a regular file owned by the account running the app with no group or other permissions (mode `0600`); symlinks are refused. Use a certificate whose DNS name or IP SAN matches the address Home Assistant uses and that Home Assistant's host trusts: the Home Assistant integration always verifies certificates and cannot be told not to. A self-signed certificate therefore only works if its CA is installed on the Home Assistant host; most home setups use plain HTTP on the LAN instead.
+
+## Handover safe mode
+
+The installation must not be disturbed before the installer hands it over. Home Assistant only mirrors this app and adds no meaningful load to the gateway:
+
+- **Steady state: 5 gateway HTTP requests per minute** with the default 60 s TTL (`loads`, `loads/state`, `rooms`, `sensors`, `buttons`, one set per refresh), plus the single WebSocket the app already keeps open (library-level ping every 30 s). A longer `WISER_SNAPSHOT_TTL` lowers it: 15 s gives at most 20 requests/min, 300 s gives 1/min. This does not depend on how often or by how many clients the snapshot is polled: concurrent requests share one refresh, and between refreshes the cache is patched from live WebSocket events.
+- If the gateway fails, it is retried at most every `min(TTL, 15 s)`; older cached data is served only inside 3 × TTL with its true age in `observed_at`, after which the snapshot fails (502/409) instead of showing old data.
+- Extra requests only in these cases, each at most one refresh set (5 requests) and never more often than every 2 seconds: after the live connection (re)connects, and after an accepted command.
+- A command costs one `GET loads/<id>` (identity check) and one `PUT loads/<id>/target_state`. Identification costs one `GET buttons` and one `PUT buttons/<id>/ping`.
+- Never done: configuration or commissioning endpoints, jobs, calibration, button registration or simulation, pairing, or any write without `WISER_INTEGRATION_CONTROL=1` (the default is read-only; both write routes answer 403 and send nothing to the gateway).
+- Open browser dashboards are separate and make their own gateway requests (they poll every 30 seconds without live updates); close them when minimising gateway traffic.
+
+Suggested order: start read-only, confirm the entities and values in Home Assistant, only then set `WISER_INTEGRATION_CONTROL=1` for a supervised test of a harmless light.
+
+## Tests
+
+`node --test test/integration-listener.test.js` runs the proxy checks over plain HTTP, and over HTTPS when `openssl` is available. `node --test test/integration-api.test.js` covers the app side (snapshot, cache, stream, identify).

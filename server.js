@@ -8,6 +8,7 @@ import { createMappingStore, DEFAULT_DB_PATH } from './storage.js';
 import { validateMappings, mappingMatches } from './src/mappings.js';
 import { createCredentialStore } from './credentials.js';
 import { createLiveSession } from './live.js';
+import { startIntegrationListener } from './integration-listener.js';
 
 const READS = new Set(['info', 'loads', 'loads/state', 'rooms', 'devices',
   'sensors', 'buttons', 'smartbuttons', 'westgroups', 'hvacgroups', 'hvacgroups/state']);
@@ -75,13 +76,23 @@ async function body(req, limit = 8192) {
 
 // Factory permits tests to use an ephemeral fake gateway, without exposing a port
 // override or arbitrary URL through the public API.
-export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null, liveEnabled = false, envGateway = null } = {}) {
+export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45000, dbPath = ':memory:', integrationToken = '', integrationControl = false, credentialDir = null, liveEnabled = false, envGateway = null, integrationHeartbeat = 20000, snapshotTtl = 60000 } = {}) {
   if (typeof integrationToken !== 'string' || integrationToken !== '' && !/^[A-Za-z0-9_-]{32,256}$/.test(integrationToken)) throw new Error('WISER_INTEGRATION_TOKEN must contain 32–256 URL-safe ASCII characters.');
   const integrationDigest = createHash('sha256').update(integrationToken).digest();
   const gatewayKey = active => active.host.replace(/^\[|\]$/g, '');
   const loadIdentity = (active, load) => createHash('sha256').update(JSON.stringify([
     gatewayKey(active), load.device ?? null, load.channel ?? null, load.type ?? null, load.sub_type ?? null, load.id,
   ])).digest('hex');
+  // Prefixed so sensors and buttons can never collide with a load identity. A button's identity omits its id,
+  // because registering an input assigns an id without changing the physical input.
+  const sensorIdentity = (active, sensor) => createHash('sha256').update(JSON.stringify([
+    'sensor', gatewayKey(active), sensor.device ?? null, sensor.channel ?? null, sensor.type ?? null, sensor.sub_type ?? null, sensor.id,
+  ])).digest('hex');
+  const buttonIdentity = (active, button) => createHash('sha256').update(JSON.stringify([
+    'button', gatewayKey(active), button.device, button.channel, button.type ?? null, button.sub_type ?? null,
+  ])).digest('hex');
+  const identifiable = button => object(button) && typeof button.device === 'string' && /^[a-fA-F0-9]{1,64}$/.test(button.device)
+    && Number.isSafeInteger(button.channel) && button.channel >= 0;
   const store = createMappingStore(dbPath);
   const credentials = credentialDir ? createCredentialStore(credentialDir) : null;
   let savedConnection = null;
@@ -149,6 +160,70 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
       .map(([key, item]) => [redact(key), sanitize(item, token)]));
     return value;
   }
+  // Unregistered buttons have no logical id; physical addressing still identifies them. Flashes the LED for two seconds only.
+  const pingButton = (active, button) => gateway(active.host, active.token,
+    `buttons/${Number.isSafeInteger(button.id) && button.id >= 0 && button.id <= 9999999999 ? button.id : `${button.device}_${button.channel}`}/ping`, 'PUT', { time_ms: 2000 });
+  // The gateway is read at most once per snapshotTtl per session, however often or by however many clients the snapshot is
+  // requested. Between refreshes the live WebSocket patches cached load states. Personal labels are re-applied per response.
+  const newCache = () => ({ value: null, inflight: null, dirty: false, error: null, retryAt: 0 });
+  async function readInstallation(active) {
+    const checkSession = () => { if (session !== active) throw new AppError(409, 'Connection changed.'); };
+    const loads = await gateway(active.host, active.token, 'loads');
+    checkSession();
+    if (!Array.isArray(loads) || loads.some(load => !object(load) || !Number.isSafeInteger(load.id) || load.id < 0)
+      || new Set(loads.map(load => load.id)).size !== loads.length) throw new AppError(502, 'Gateway returned an invalid load list.');
+    const states = await gateway(active.host, active.token, 'loads/state');
+    checkSession();
+    if (!Array.isArray(states) || states.some(state => !object(state) || !Number.isSafeInteger(state.id) || state.id < 0)
+      || new Set(states.map(state => state.id)).size !== states.length) throw new AppError(502, 'Gateway returned an invalid state list.');
+    const rooms = await gateway(active.host, active.token, 'rooms');
+    checkSession();
+    if (!Array.isArray(rooms) || rooms.some(room => !object(room) || !Number.isSafeInteger(room.id) || room.id < 0)) throw new AppError(502, 'Gateway returned an invalid room list.');
+    // Older gateways may not offer these collections; any other failure must not yield a partial snapshot.
+    const optionalList = async (resource, valid, message) => {
+      let data;
+      try { data = await gateway(active.host, active.token, resource); }
+      catch (error) {
+        if (error instanceof AppError && [404, 405, 501].includes(error.status)) { checkSession(); return []; }
+        throw error;
+      }
+      checkSession();
+      if (!Array.isArray(data) || data.some(item => !valid(item))) throw new AppError(502, message);
+      return data;
+    };
+    const sensorList = await optionalList('sensors', sensor => object(sensor) && Number.isSafeInteger(sensor.id) && sensor.id >= 0, 'Gateway returned an invalid sensor list.');
+    if (new Set(sensorList.map(sensor => sensor.id)).size !== sensorList.length) throw new AppError(502, 'Gateway returned an invalid sensor list.');
+    const buttonList = await optionalList('buttons', object, 'Gateway returned an invalid button list.');
+    return { at: Date.now(), loads, rooms, sensorList, buttonList, states: new Map(states.map(state => [state.id, state.state])) };
+  }
+  function installation(active) {
+    const cache = active.cache;
+    const now = Date.now();
+    // A resync or an accepted command marks the cache dirty; that refreshes it, but never twice within two seconds.
+    if (cache.value && now - cache.value.at < snapshotTtl && !(cache.dirty && now - cache.value.at >= 2000)) return Promise.resolve(cache.value);
+    if (cache.inflight) return cache.inflight;
+    const usable = () => snapshotTtl > 0 && cache.value && Date.now() - cache.value.at <= 3 * snapshotTtl;
+    // After a failure the gateway is not retried for min(TTL, 15 s). Older data is served only inside 3 x TTL, with its true age in observed_at.
+    if (cache.error && now < cache.retryAt) return usable() ? Promise.resolve(cache.value) : Promise.reject(cache.error);
+    cache.inflight = readInstallation(active).then(value => {
+      cache.value = value; cache.dirty = false; cache.error = null;
+      return value;
+    }, error => {
+      cache.error = error; cache.retryAt = Date.now() + Math.min(snapshotTtl, 15000);
+      if (error instanceof AppError && error.status === 409 || !usable()) throw error;
+      return cache.value;
+    }).finally(() => { cache.inflight = null; });
+    return cache.inflight;
+  }
+  // Live events keep cached states current without touching the gateway; a (re)connect may have missed changes.
+  function patchCache(active, event) {
+    const cache = active.cache;
+    if (event.type === 'resync') cache.dirty = true;
+    else if (event.type === 'load' && cache.value?.states.has(event.id)) {
+      const current = cache.value.states.get(event.id);
+      cache.value.states.set(event.id, { ...(object(current) ? current : {}), ...event.state });
+    }
+  }
   const server = http.createServer(async (req, res) => {
     const reply = (status, data) => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -185,25 +260,43 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         if (!timingSafeEqual(integrationDigest, supplied)) throw new AppError(401, 'Unauthorized.');
         const targetRoute = /^\/api\/integration\/v1\/loads\/(0|[1-9]\d{0,9})\/target$/.exec(path);
         const snapshot = req.method === 'GET' && path === '/api/integration/v1/snapshot';
-        if (!snapshot && !(req.method === 'PUT' && targetRoute)) throw new AppError(404, 'Endpoint not allowed.');
-        if (!snapshot && integrationControl !== true) throw new AppError(403, 'Integration control disabled.');
+        const events = req.method === 'GET' && path === '/api/integration/v1/events';
+        const identify = req.method === 'PUT' && path === '/api/integration/v1/buttons/identify';
+        if (!snapshot && !events && !identify && !(req.method === 'PUT' && targetRoute)) throw new AppError(404, 'Endpoint not allowed.');
+        if (!snapshot && !events && integrationControl !== true) throw new AppError(403, 'Integration control disabled.');
         if (!session) throw new AppError(409, 'Connect to a gateway first.');
         const active = session;
         const checkSession = () => { if (session !== active) throw new AppError(409, 'Connection changed.'); };
+        if (events) {
+          // Read-only push stream. Every line carries the session scope; clients must ignore a scope they did not snapshot.
+          if (!active.live) throw new AppError(503, 'Live updates unavailable; use polling.');
+          if (!active.live.subscribe(res, { heartbeat: integrationHeartbeat })) throw new AppError(503, 'Live update client limit reached.');
+          return;
+        }
         if (snapshot) {
-          const loads = await gateway(active.host, active.token, 'loads');
+          const raw = await installation(active);
           checkSession();
-          if (!Array.isArray(loads) || loads.some(load => !object(load) || !Number.isSafeInteger(load.id) || load.id < 0)
-            || new Set(loads.map(load => load.id)).size !== loads.length) throw new AppError(502, 'Gateway returned an invalid load list.');
-          const states = await gateway(active.host, active.token, 'loads/state');
-          checkSession();
-          if (!Array.isArray(states) || states.some(state => !object(state) || !Number.isSafeInteger(state.id) || state.id < 0)
-            || new Set(states.map(state => state.id)).size !== states.length) throw new AppError(502, 'Gateway returned an invalid state list.');
-          const rooms = await gateway(active.host, active.token, 'rooms');
-          checkSession();
-          if (!Array.isArray(rooms) || rooms.some(room => !object(room) || !Number.isSafeInteger(room.id) || room.id < 0)) throw new AppError(502, 'Gateway returned an invalid room list.');
+          const { loads, rooms, sensorList, buttonList } = raw;
           const mappings = store.list(gatewayKey(active));
-          const byId = new Map(states.map(state => [state.id, state.state]));
+          // Zero and false are real readings; anything that is not a finite number or boolean is reported as missing, never guessed.
+          const sensors = sensorList.map(sensor => ({ id: sensor.id, identity: sensorIdentity(active, sensor),
+            name: typeof sensor.name === 'string' ? sensor.name : null,
+            type: typeof sensor.type === 'string' ? sensor.type : null, sub_type: typeof sensor.sub_type === 'string' ? sensor.sub_type : null,
+            unit: typeof sensor.unit === 'string' ? sensor.unit : null,
+            value: typeof sensor.value === 'boolean' || Number.isFinite(sensor.value) ? sensor.value : null,
+            device: typeof sensor.device === 'string' ? sensor.device : null,
+            channel: Number.isSafeInteger(sensor.channel) && sensor.channel >= 0 ? sensor.channel : null }));
+          // Only uniquely addressable physical inputs are listed; the identify route needs exactly one match.
+          const seen = new Map();
+          for (const button of buttonList.filter(identifiable)) seen.set(`${button.device}/${button.channel}`, (seen.get(`${button.device}/${button.channel}`) ?? 0) + 1);
+          const buttons = buttonList.filter(button => identifiable(button) && seen.get(`${button.device}/${button.channel}`) === 1).map(button => {
+            const id = Number.isSafeInteger(button.id) && button.id >= 0 ? button.id : null;
+            return { id, identity: buttonIdentity(active, button), name: typeof button.name === 'string' ? button.name : null,
+              device: button.device, channel: button.channel,
+              type: typeof button.type === 'string' ? button.type : null, sub_type: typeof button.sub_type === 'string' ? button.sub_type : null,
+              registered: id !== null };
+          });
+          const byId = raw.states;
           const entities = loads.map(load => {
             const mapping = mappingMatches(load, mappings[load.id]) ? mappings[load.id] : null;
             const state = byId.get(load.id);
@@ -221,7 +314,22 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
               type: typeof load.type === 'string' ? load.type : null, sub_type: typeof load.sub_type === 'string' ? load.sub_type : null,
               unused: !!load.unused, state: safeState };
           });
-          return reply(200, sanitize({ version: 1, gateway: gatewayKey(active), scope: active.draftScope, observed_at: new Date().toISOString(), entities }, active.token));
+          return reply(200, sanitize({ version: 1, gateway: gatewayKey(active), scope: active.draftScope, observed_at: new Date(raw.at).toISOString(), entities, sensors, buttons }, active.token));
+        }
+        if (identify) {
+          const input = await body(req);
+          checkSession();
+          keys(input, ['scope', 'identity']);
+          if (typeof input.scope !== 'string' || typeof input.identity !== 'string' || !/^[a-f0-9]{64}$/.test(input.identity)) invalid('Supply a valid scope and identity.');
+          if (input.scope !== active.draftScope) throw new AppError(409, 'Connection changed.');
+          const found = await gateway(active.host, active.token, 'buttons');
+          checkSession();
+          if (!Array.isArray(found) || found.some(button => !object(button))) throw new AppError(502, 'Gateway returned an invalid button list.');
+          const matches = found.filter(button => identifiable(button) && buttonIdentity(active, button) === input.identity);
+          if (matches.length !== 1) throw new AppError(409, 'Button identity changed; refresh before applying.');
+          await pingButton(active, matches[0]);
+          checkSession();
+          return reply(200, { accepted: true });
         }
         const input = await body(req);
         checkSession();
@@ -235,6 +343,7 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         validateTarget(current, input.target);
         checkSession();
         await gateway(active.host, active.token, `loads/${targetRoute[1]}/target_state`, 'PUT', input.target);
+        active.cache.dirty = true;
         checkSession();
         return reply(200, { accepted: true });
       }
@@ -342,6 +451,11 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         if (!active.live.subscribe(res)) throw new AppError(503, 'Live update client limit reached.');
         return;
       }
+      if (path === '/api/diagnostics/gateway-events' && ['GET', 'DELETE'].includes(req.method)) {
+        // In-memory capture of recent gateway WebSocket messages (load updates are marked kind: 'load'); no gateway request is made here.
+        if (req.method === 'DELETE') active.live?.clearRawEvents();
+        return reply(200, { data: req.method === 'DELETE' ? [] : sanitize(active.live?.rawEvents() ?? [], active.token) });
+      }
       if ((req.method === 'PUT' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/target_state$/.test(path)
         || req.method === 'PATCH' && /^\/api\/loads\/(0|[1-9]\d{0,9})\/config$/.test(path)
         || req.method === 'POST' && path === '/api/buttons/identify')
@@ -372,11 +486,8 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
         const matches = buttons.filter(button => button.device === input.device && button.channel === input.channel);
         if (matches.length !== 1) invalid('Select a uniquely discovered physical button.');
         const button = matches[0];
-        // Unregistered buttons have no logical id; physical addressing still identifies them.
-        const address = Number.isSafeInteger(button.id) && button.id >= 0 && button.id <= 9999999999
-          ? String(button.id) : `${input.device}_${input.channel}`;
         checkSession();
-        await gateway(active.host, active.token, `buttons/${address}/ping`, 'PUT', { time_ms: 2000 });
+        await pingButton(active, button);
         checkSession();
         return reply(200, { accepted: true });
       }
@@ -460,7 +571,8 @@ export function createApp({ gatewayPort = 80, timeout = 10000, claimTimeout = 45
   }
   server.once('listening', () => { if (savedConnection) void reconnectSaved().catch(() => {}); });
   function startLive(active) {
-    if (liveEnabled) active.live = createLiveSession({ host: active.host, port: gatewayPort, token: active.token, scope: active.draftScope, handshakeTimeout: timeout });
+    active.cache = newCache();
+    if (liveEnabled) active.live = createLiveSession({ host: active.host, port: gatewayPort, token: active.token, scope: active.draftScope, handshakeTimeout: timeout, onEvent: event => patchCache(active, event) });
   }
   // End indefinite streams before waiting for HTTP server shutdown.
   const closeServer = server.close.bind(server);
@@ -473,5 +585,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   loadEnv();
   const port = Number(process.env.PORT || 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be 1–65535.');
-  createApp({ liveEnabled: true, envGateway: gatewayFromEnv(), dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' }).listen(port, '127.0.0.1', () => console.log(`Wiser local POC: http://127.0.0.1:${port}`));
+  const ttl = process.env.WISER_SNAPSHOT_TTL ? Number(process.env.WISER_SNAPSHOT_TTL) : 60;
+  if (!Number.isInteger(ttl) || ttl < 15 || ttl > 3600) throw new Error('WISER_SNAPSHOT_TTL must be a whole number of seconds from 15 to 3600.');
+  const app = createApp({ liveEnabled: true, envGateway: gatewayFromEnv(), snapshotTtl: ttl * 1000, dbPath: process.env.WISER_DB_PATH || DEFAULT_DB_PATH, credentialDir: process.env.WISER_CREDENTIAL_DIR || fileURLToPath(new URL('./data/credentials', import.meta.url)), integrationToken: process.env.WISER_INTEGRATION_TOKEN || '', integrationControl: process.env.WISER_INTEGRATION_CONTROL === '1' });
+  app.listen(port, '127.0.0.1', () => {
+    console.log(`Wiser local POC: http://127.0.0.1:${port}`);
+    // The Home Assistant listener starts with the app whenever an integration token is configured. A misconfigured listener
+    // never takes the dashboard down: the reason is printed and the dashboard keeps running.
+    if (!process.env.WISER_INTEGRATION_TOKEN) return;
+    try {
+      const listener = startIntegrationListener(process.env, { localPort: port });
+      app.once('close', () => listener.close());
+    } catch (error) { console.error(`Home Assistant integration API NOT started: ${error.message}`); }
+  });
 }

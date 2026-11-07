@@ -4,6 +4,7 @@
   import BackupPanel from './BackupPanel.svelte';
   import ThemePicker from './ThemePicker.svelte';
   import ResourcePanel from './ResourcePanel.svelte';
+  import GatewayEvents from './GatewayEvents.svelte';
   import { RESOURCE_NAMES } from '../dashboard.svelte.js';
 
   let { dash, section = 'floors', onsection } = $props();
@@ -50,6 +51,7 @@
         <p class="muted">Read-only raw resources. Availability depends on your firmware and installation.</p>
         {#if dash.diagnosticsBusy}<p class="small" role="status">Updating diagnostics in the background…</p>{/if}
         {#each RESOURCE_NAMES as name (name)}<ResourcePanel {name} result={dash.resources[name]} />{/each}
+        <GatewayEvents demo={dash.demo} />
       </section>
     {/if}
   </div>

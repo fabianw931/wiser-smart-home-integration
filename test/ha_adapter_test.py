@@ -1,5 +1,7 @@
 """Run without installing Home Assistant: python -m unittest discover -s test -p '*_test.py'."""
+import asyncio
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import types
@@ -62,10 +64,26 @@ class AdapterTest(unittest.TestCase):
 
     def test_snapshot_identity_and_duplicates(self):
         value = {"version": 1, "gateway": "host", "scope": "session", "entities": [{"id": 1, "identity": "a" * 64}]}
-        self.assertIs(model.snapshot(value), value)
+        result = model.snapshot(value)
+        self.assertEqual(result["entities"], value["entities"])
+        self.assertEqual((result["sensors"], result["buttons"]), ([], []))  # older apps omit both
+        self.assertNotIn("sensors", value)
         value["entities"].append(value["entities"][0].copy())
         with self.assertRaises(ValueError):
             model.snapshot(value)
+
+    def test_snapshot_keeps_valid_sensors_and_buttons_and_drops_malformed_ones(self):
+        sensor = {"id": 1, "identity": "b" * 64, "type": "temperature", "unit": "\u2103", "value": 20}
+        button = {"id": None, "identity": "c" * 64, "device": "0000a98f", "channel": 1, "registered": False}
+        value = {"version": 1, "gateway": "host", "scope": "s", "entities": [],
+                 "sensors": [sensor, sensor, {"id": 2, "identity": "bad"}, {"id": "x", "identity": "d" * 64}, 5],
+                 "buttons": [button, {**button}, {"identity": "short"}, None]}
+        result = model.snapshot(value)
+        self.assertEqual(result["sensors"], [sensor])
+        self.assertEqual(result["buttons"], [button])
+        for junk in ("nope", {}, 5, None):
+            result = model.snapshot({**value, "sensors": junk, "buttons": junk})
+            self.assertEqual((result["sensors"], result["buttons"]), ([], []))
 
     def test_missing_or_invalid_state_refuses_control(self):
         entity = {"unused": False, "type": "onoff", "state": {"bri": 0}}
@@ -160,15 +178,128 @@ class AdapterTest(unittest.TestCase):
         for button in ({"device": "0000a98f", "channel": -1}, {"device": "0000a98f", "channel": True}, {"device": "?", "channel": 0}, {"channel": 1}):
             self.assertFalse(model.identifiable_button(button))
 
+    def test_button_names(self):
+        self.assertEqual(model.button_name({"name": " Hall ", "device": "0000a98f", "channel": 1}), "Hall")
+        self.assertEqual(model.button_name({"device": "0000a98f", "channel": 1}), "Wiser button 0000a98f channel 1")
+
+    def test_http_only_when_explicitly_allowed(self):
+        self.assertEqual(model.base_url("http://192.168.1.5:3443", allow_http=True), "http://192.168.1.5:3443")
+        self.assertEqual(model.base_url("https://192.168.1.5:3443", allow_http=True), "https://192.168.1.5:3443")
+        with self.assertRaises(ValueError):
+            model.base_url("http://192.168.1.5:3443")
+        for value in ("http://u:p@h", "http://h/api", "http://h?x=1", "http://h#x", "http://h:0", "ftp://h", "http://h:70000", "http://"):
+            with self.assertRaises(ValueError):
+                model.base_url(value, allow_http=True)
+
+    def test_build_url_from_flow_fields(self):
+        self.assertEqual(model.build_url("192.168.1.5", 3443, False), "http://192.168.1.5:3443")
+        self.assertEqual(model.build_url(" Wiser.Local ", 3443.0, True), "https://wiser.local:3443")
+        self.assertEqual(model.build_url("[::1]", 8443, False), "http://[::1]:8443")
+        self.assertEqual(model.build_url("fd00:0::5", 1, True), "https://[fd00::5]:1")
+        for use_ssl in (None, 0, "yes"):
+            with self.assertRaises(ValueError):
+                model.build_url("192.168.1.5", 3443, use_ssl)
+
+    def test_host_validation(self):
+        for host in ("192.168.1.5", "app", "my-app.example.org", "a" * 63 + ".example", "::1", "2001:db8::1"):
+            self.assertIsInstance(model.validate_host(host), str)
+        self.assertEqual(model.validate_host(" App \n"), "app")  # surrounding whitespace from pasting is trimmed
+        self.assertEqual(model.validate_host("[2001:DB8::1]"), "2001:db8::1")
+        for host in ("", "  ", None, 5, "http://app", "app:3443", "app/path", "app?x", "app#x", "user@app", "u:p@app",
+                     "a b", "ap\np", "app\x00", "-app", "app-", "a..b", ".app", "app_x", "app%eth0", "fe80::1%eth0",
+                     "[app]", "[::1", "0.0.0.0", "::", "224.0.0.1", "1.2.3", "999.1.1.1", "a" * 64 + ".example", "x" * 254,
+                     "\u00e4pp.example"):
+            with self.assertRaises(ValueError, msg=repr(host)):
+                model.validate_host(host)
+
+    def test_port_validation(self):
+        self.assertEqual([model.validate_port(v) for v in (1, 3443, 65535, 3443.0)], [1, 3443, 65535, 3443])
+        for value in (0, 65536, -1, True, False, None, "3443", 3443.5, float("nan"), float("inf")):
+            with self.assertRaises(ValueError, msg=repr(value)):
+                model.validate_port(value)
+
+    def test_token_validation_is_header_safe(self):
+        self.assertEqual(model.validate_token("  abc_DEF-123  "), "abc_DEF-123")
+        for value in ("", "   ", None, 5, "a b", "a\nb", "a\r\nX: y", "t\u00f6ken", "x" * 513):
+            with self.assertRaises(ValueError, msg=repr(value)):
+                model.validate_token(value)
+
+    def test_event_lines(self):
+        self.assertEqual(model.parse_event_line(b'{"type":"load","scope":"s","id":1,"state":{"bri":5}}\n')["id"], 1)
+        self.assertEqual(model.parse_event_line('{"type":"heartbeat","scope":"s"}')["type"], "heartbeat")
+        for line in (b"", b"\n", b"not json", b"[]", b"5", b"null", b'{"type":"load"}', b'{"scope":"s"}',
+                     b'{"type":5,"scope":"s"}', b'{"type":"x","scope":5}', b"\xff\xfe", b"[" * 100000):
+            self.assertIsNone(model.parse_event_line(line), msg=repr(line[:20]))
+
+    def snapshot_with_loads(self):
+        return {"version": 1, "gateway": "g", "scope": "s1", "observed_at": "t", "sensors": [], "buttons": [],
+                "entities": [{"id": 1, "identity": "a" * 64, "type": "dali", "state": {"bri": 5000, "ct": 3000}},
+                             {"id": 2, "identity": "b" * 64, "type": "motor", "state": {"level": 0}}]}
+
+    def test_apply_event_merges_partial_state_copy_on_write(self):
+        import copy
+        original = self.snapshot_with_loads()
+        before = copy.deepcopy(original)
+        result = model.apply_event(original, {"type": "load", "scope": "s1", "id": 1, "state": {"bri": 0}})
+        self.assertEqual(original, before)  # input untouched
+        self.assertIsNot(result, original)
+        self.assertEqual(result["entities"][0]["state"], {"bri": 0, "ct": 3000})  # partial merge keeps ct
+        self.assertIs(result["entities"][1], original["entities"][1])  # other loads shared, not copied
+        self.assertIsNot(result["entities"][0]["state"], original["entities"][0]["state"])
+        self.assertEqual({k: v for k, v in result.items() if k != "entities"},
+                         {k: v for k, v in original.items() if k != "entities"})
+
+    def test_apply_event_adds_fields_and_drops_nulls(self):
+        original = self.snapshot_with_loads()
+        result = model.apply_event(original, {"type": "load", "scope": "s1", "id": 1, "state": {"red": 1, "ct": None}})
+        self.assertEqual(result["entities"][0]["state"], {"bri": 5000, "red": 1})
+        missing = model.apply_event({**original, "entities": [{"id": 1, "identity": "a" * 64}]},
+                                    {"type": "load", "scope": "s1", "id": 1, "state": {"bri": 100}})
+        self.assertEqual(missing["entities"][0]["state"], {"bri": 100})  # no previous state at all
+
+    def test_apply_event_ignores_what_it_cannot_trust(self):
+        original = self.snapshot_with_loads()
+        ok = {"type": "load", "scope": "s1", "id": 1, "state": {"bri": 0}}
+        for event in ({**ok, "scope": "other"}, {**ok, "scope": None}, {**ok, "id": 99}, {**ok, "id": "1"},
+                      {**ok, "id": True}, {**ok, "type": "status"}, {**ok, "state": []}, {**ok, "state": None},
+                      {**ok, "state": {}}, {**ok, "state": {"bri": 5000}},  # no change
+                      {**ok, "state": {"bri": "0"}}, {**ok, "state": {"bri": True}}, {**ok, "state": {"bri": 10001}},
+                      {**ok, "state": {"bri": 1.5}}, {**ok, "state": {"ct": 999}}, {**ok, "state": {"red": 256}},
+                      {**ok, "state": {"bogus": 1}}, {**ok, "state": {"white": None}},  # dropping an absent field
+                      None, "x", {}):
+            self.assertIsNone(model.apply_event(original, event), msg=repr(event))
+        self.assertIsNone(model.apply_event(None, ok))
+
+    def test_apply_event_applies_valid_fields_next_to_invalid_ones(self):
+        original = self.snapshot_with_loads()
+        result = model.apply_event(original, {"type": "load", "scope": "s1", "id": 1,
+                                              "state": {"bri": 0, "ct": "warm", "bogus": 5, "red": 999}})
+        self.assertEqual(result["entities"][0]["state"], {"bri": 0, "ct": 3000})
+
+    def test_apply_event_is_idempotent_and_ordered(self):
+        snap = self.snapshot_with_loads()
+        for bri in (100, 200, 300):
+            snap = model.apply_event(snap, {"type": "load", "scope": "s1", "id": 1, "state": {"bri": bri}})
+        self.assertEqual(snap["entities"][0]["state"]["bri"], 300)
+        self.assertIsNone(model.apply_event(snap, {"type": "load", "scope": "s1", "id": 1, "state": {"bri": 300}}))
+
+    def test_backoff_schedule(self):
+        self.assertEqual([model.backoff_delay(n) for n in range(9)], [1, 2, 4, 8, 16, 32, 60, 60, 60])
+        self.assertEqual(model.backoff_delay(-5), 1)
+        self.assertEqual(model.backoff_delay(10 ** 6), 60)
+        self.assertEqual(model.backoff_delay(2, base=0.5, cap=1.5), 1.5)
+
 
 @unittest.skipIf(aiohttp is None, "Transport tests require uv run --with aiohttp")
 class TransportTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.mode = "snapshot"
         self.calls = []
+        self.bodies = []
 
         async def handler(request):
             self.calls.append((request.method, request.path, request.headers.get("Authorization")))
+            self.bodies.append(await request.read())
             if self.mode == "401":
                 return web.Response(status=401, text="secret upstream response")
             if self.mode == "403":
@@ -185,6 +316,24 @@ class TransportTest(unittest.IsolatedAsyncioTestCase):
                 for _ in range(33):
                     await response.write(b"x" * 65536)
                 await response.write_eof()
+                return response
+            if self.mode.startswith("events"):
+                if self.mode == "events_wrong_type":
+                    return web.json_response({})
+                response = web.StreamResponse(headers={"Content-Type": "application/x-ndjson"})
+                await response.prepare(request)
+                if self.mode == "events_silent":
+                    await asyncio.sleep(1)
+                elif self.mode == "events_long_line":
+                    await response.write(b"x" * 200000 + b"\n")
+                else:
+                    await response.write(b'{"type":"heartbeat","scope":"fresh"}\n')
+                    await response.write(b'not json\n{"type":"load","scope":"fresh","id":1,"state":{"bri":0}}\n')
+                    await response.write(b'{"type":"resync","scope":"fresh"}\n{"type":"status"')  # cut off mid-line
+                try:
+                    await response.write_eof()
+                except ConnectionResetError:  # the client already hung up (line limit, idle timeout)
+                    pass
                 return response
             if self.mode == "accepted":
                 return web.json_response({"accepted": True})
@@ -249,6 +398,47 @@ class TransportTest(unittest.IsolatedAsyncioTestCase):
                 await self.api.target(1, "scope", "a" * 64, {"bri": 0})
         self.mode = "accepted"
         await self.api.target(1, "scope", "a" * 64, {"bri": 0})
+
+    async def test_identify_posts_scope_and_identity(self):
+        self.mode = "accepted"
+        await self.api.identify("fresh", "c" * 64)
+        self.assertEqual(self.calls, [("PUT", "/api/integration/v1/buttons/identify", "Bearer test-token")])
+        self.assertEqual(json.loads(self.bodies[0]), {"scope": "fresh", "identity": "c" * 64})
+        self.mode = "rejected"
+        with self.assertRaises(transport.ApiError):
+            await self.api.identify("fresh", "c" * 64)
+
+    async def test_control_disabled_is_its_own_error_and_not_a_credential_problem(self):
+        self.mode = "403"
+        with self.assertRaises(transport.ControlDisabledError):
+            await self.api.identify("fresh", "c" * 64)
+        self.assertTrue(issubclass(transport.ControlDisabledError, transport.ApiError))
+
+    async def test_events_yield_valid_lines_and_end_cleanly(self):
+        self.mode = "events"
+        events = [event async for event in self.api.events()]
+        self.assertEqual([event["type"] for event in events], ["heartbeat", "load", "resync"])  # garbage and the cut-off line skipped
+        self.assertEqual(self.calls[-1], ("GET", "/api/integration/v1/events", "Bearer test-token"))
+
+    async def test_events_errors(self):
+        for mode, error in (("401", transport.AuthError), ("403", transport.ApiError), ("redirect", transport.ApiError),
+                            ("events_wrong_type", transport.ApiError), ("events_long_line", transport.ApiError)):
+            self.mode = mode
+            with self.assertRaises(error, msg=mode):
+                async for _ in self.api.events():
+                    pass
+
+    async def test_silent_stream_is_a_dead_link(self):
+        self.mode = "events_silent"
+        with self.assertRaises(transport.ApiError):
+            async for _ in self.api.events(idle_timeout=0.2):
+                pass
+
+    async def test_http_origin_for_the_lan_listener(self):
+        client = transport.WorkspaceApi(self.session, self.origin, "test-token", allow_http=True)
+        self.assertEqual((await client.snapshot())["scope"], "fresh")
+        with self.assertRaises(ValueError):
+            transport.WorkspaceApi(self.session, self.origin, "test-token")
 
 
 if __name__ == "__main__":

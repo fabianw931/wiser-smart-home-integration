@@ -7,8 +7,8 @@ import { decorate, buildHome, actionTargets, loadName, ACTIONS } from './home.js
 
 export const RESOURCE_NAMES = ['info', 'rooms', 'buttons', 'sensors', 'westgroups', 'smartbuttons', 'devices', 'hvacgroups', 'hvacgroups/state'];
 const POLL_MS = 30000;
-// Lights in a quick action are sent in small parallel groups; blinds stay one at a time because motors start together otherwise.
-const LIGHT_PARALLEL = 4;
+// Quick actions send one request at a time: parallel sends gave no visible benefit on the real gateway.
+const LIGHT_PARALLEL = 1;
 const bare = host => host.replace(/^\[|\]$/g, '');
 const emptyLayout = () => ({ floors: [], favorites: { loads: [], rooms: [] } });
 
