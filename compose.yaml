@@ -1,0 +1,27 @@
+# Run on the Raspberry Pi:  docker compose up -d --build
+# Host networking keeps the web UI on the Pi's own 127.0.0.1:3000 (never published to the LAN; reach it with
+# `ssh -L 3000:127.0.0.1:3000 pi@<pi-address>`), and puts the integration listener (WISER_API_PORT, default 3443)
+# on the Pi's LAN address so the host firewall (ufw/nftables) controls who may reach it. Docker does not bypass
+# the firewall in host mode, unlike published ports.
+services:
+  wiser:
+    build: .
+    container_name: wiser-workspace
+    network_mode: host
+    restart: unless-stopped
+    init: true # node as PID 1 would ignore SIGTERM; this makes `docker compose stop` immediate
+    env_file: .env
+    # Set UID/GID in the shell if your Pi user is not 1000 (`id -u`, `id -g`) so ./data stays writable.
+    user: "${UID:-1000}:${GID:-1000}"
+    volumes:
+      - ./data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
