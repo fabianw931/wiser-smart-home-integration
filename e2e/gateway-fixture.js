@@ -16,9 +16,9 @@ const close = server => new Promise(resolve => {
 export const test = base.extend({
   gateway: async ({}, use) => {
     const loads = [
-      { id: 1, type: 'onoff', name: 'Hall light', device: 'fake-1', channel: 0, unused: false },
-      { id: 2, type: 'dim', name: 'Desk light', device: 'fake-2', channel: 0, unused: false },
-      { id: 3, type: 'motor', name: 'Office blind', device: 'fake-3', channel: 0, unused: false },
+      { id: 1, type: 'onoff', name: 'Hall light', room: 1, device: 'fake-1', channel: 0, unused: false },
+      { id: 2, type: 'dim', name: 'Desk light', room: 2, device: 'fake-2', channel: 0, unused: false },
+      { id: 3, type: 'motor', name: 'Office blind', room: 2, device: 'fake-3', channel: 0, unused: false },
       { id: 4, type: 'unknown', name: 'Unknown device', device: 'fake-4', channel: 0, unused: false },
       { id: 5, type: 'dim', name: 'Unused channel', device: 'fake-5', channel: 0, unused: true },
     ];
@@ -62,7 +62,7 @@ export const test = base.extend({
         if (control.failAfterTarget) control.failStates = true;
         return success({ id: Number(target[1]), target_state: payload });
       }
-      if (req.url === '/api/rooms') return success([{ id: 1, name: 'Hall' }]);
+      if (req.url === '/api/rooms') return success([{ id: 1, name: 'Hall' }, { id: 2, name: 'Office' }]);
       if (['/api/devices', '/api/hvacgroups', '/api/hvacgroups/state'].includes(req.url)) return success([]);
       return reply(404, { status: 'error', message: 'Unsupported fixture resource' });
     });

@@ -30,10 +30,10 @@ npm start
 
 1. Enter your commissioned Wiser by Feller gateway's IP address or hostname, without a URL scheme, port, or path. The gateway must be reachable over HTTP port 80.
 2. Either supply an existing bearer token and click **Connect**, or select **Pair new client**, click **Start pairing**, and press a flashing physical gateway button within approximately **30 seconds**. Pairing sends `POST /api/account/claim` with a generated unique `local-poc-<UUID>` username. The backend allows up to 45 seconds for the claim response.
-3. Inspect discovered loads and their reported states before operating equipment. On/off lights support off/on; dimmers support integer brightness **0–10000**.
-4. Blinds support integer target **level 0–10000**, explicitly labeled **0 = open, 10000 = closed**, following the [official load tutorial](https://github.com/Feller-AG/wiser-tutorial/blob/main/doc/api_loads.md). Verify installation orientation and keep the path clear. Tilt, button simulation, stop, calibration, and HVAC writes are deliberately omitted. Tilt is a count of motor tilt commands, not an angle or percentage; a motor button click can stop movement or tilt when idle, so this POC does not present it as an unconditional stop.
-5. Use **Refresh now** or leave the page open for polling, scheduled 30 seconds after each completed refresh. Requests are sequential within the page, and failures of optional resources are shown separately. Unknown/unused load types and rooms, devices, sensors, and HVAC groups/states are read-only.
-6. Click **Disconnect & forget credentials** when finished, or stop the Node process with Ctrl+C. Closing the browser alone does **not** clear the server session.
+3. Inspect discovered loads and their reported states before operating equipment. Loads are grouped by room (when the gateway reports a room for the load or its device), with an overview of lights on and blinds open, an All/Lights/Blinds filter and name search. Lights have a power switch; dimmers add a brightness slider (stored as **0–10000**, shown as 0–100%).
+4. Blinds have Open/Close buttons and a closed-position slider (target **level 0–10000**, shown as % closed; **0 = open, 10000 = closed**), following the [official load tutorial](https://github.com/Feller-AG/wiser-tutorial/blob/main/doc/api_loads.md). Verify installation orientation and keep the path clear. Tilt, button simulation, stop, calibration, and HVAC writes are deliberately omitted. Tilt is a count of motor tilt commands, not an angle or percentage; a motor button click can stop movement or tilt when idle, so this POC does not present it as an unconditional stop.
+5. Use **Refresh** or leave the page open for polling, scheduled 30 seconds after each completed refresh. Requests are sequential within the page, and failures of optional resources are shown separately. Unknown/unused load types (collapsed under "Unused & unsupported") and the raw gateway, room, device, sensor, and HVAC resources (under "Gateway & diagnostics") are read-only.
+6. Click **Disconnect** when finished, or stop the Node process with Ctrl+C. Closing the browser alone does **not** clear the server session.
 
 ### Safety and limitations
 
@@ -68,8 +68,9 @@ Browser tests cover token connection, simulated pairing, light/dimmer/blind targ
 
 ### Code layout
 
-- `src/App.svelte`: connection lifecycle, resource refresh, polling, and command feedback.
-- `src/components/`: connection form, load cards, and read-only resource panels.
+- `src/dashboard.svelte.js`: connection lifecycle, resource refresh, polling, and command feedback.
+- `src/App.svelte`: layout, overview, filtering and room grouping; `src/loads.js`: load classification and room lookup.
+- `src/components/`: top bar, connection form, load cards, and read-only resource panels.
 - `src/api.js`: same-origin API calls, timeouts, and cancellation.
 - `server.js`: localhost HTTP server, gateway session, validation, and narrowly scoped proxy.
 - `test/`: backend regressions; `e2e/`: browser tests and fake gateway.

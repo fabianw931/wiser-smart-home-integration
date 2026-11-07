@@ -1,15 +1,20 @@
 <script>
-  export let name;
-  export let result;
+  let { name, result } = $props();
+  const count = $derived(Array.isArray(result?.data) ? result.data.length : null);
 </script>
 
-<details class="border border-base-300 rounded-box bg-base-100 p-4">
-  <summary class="cursor-pointer font-medium">{name}
-    {#if result?.error}<span class="badge badge-outline ml-2">{result.unsupported ? 'Unsupported' : 'Unavailable'}</span>{/if}
+<details class="rounded-box border border-base-300 bg-base-100 px-4 py-3">
+  <summary class="flex cursor-pointer items-center gap-2 font-medium">
+    <span>{name}</span>
+    {#if result?.error}
+      <span class="badge badge-outline badge-sm">{result.unsupported ? 'Unsupported' : 'Unavailable'}</span>
+    {:else if count !== null}
+      <span class="badge badge-ghost badge-sm">{count} {count === 1 ? 'item' : 'items'}</span>
+    {/if}
   </summary>
   {#if result?.error}
-    <p class="text-sm mt-3">{result.error}</p>
+    <p class="mt-3 text-sm">{result.error}</p>
   {:else}
-    <pre class="text-xs mt-3">{result ? JSON.stringify(result.data ?? null, null, 2) : 'Not loaded.'}</pre>
+    <pre class="mt-3 text-xs">{result ? JSON.stringify(result.data ?? null, null, 2) : 'Not loaded.'}</pre>
   {/if}
 </details>
