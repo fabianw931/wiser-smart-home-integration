@@ -167,3 +167,11 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   .home-stats span { font-size: 11px; }
   .result-count { margin-left: 0; }
 }
+
+/* Polish ported from the checkpoint branch audit. */
+::selection { background: color-mix(in oklab, var(--accent) 30%, transparent); }
+.reported-value, .result-count, .home-stats strong, .group-heading .badge { font-variant-numeric: tabular-nums; }
+input[type="range"] { touch-action: pan-y; }
+.raw-details summary { min-height: 44px; display: flex; align-items: center; }
+label:has(> input.radio), label:has(> input.checkbox) { min-height: 44px; }
+.card { box-shadow: none; }
