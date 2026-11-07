@@ -4,7 +4,7 @@ One container runs the Wiser Workspace app **and** the Home Assistant (HA) integ
 
 ## What you need
 
-- Raspberry Pi with a 64-bit OS, Docker and the Compose plugin (`docker compose version`), on the same LAN as the gateway and HA.
+- Raspberry Pi with a 64-bit OS, Docker and the Compose plugin (`docker compose version`), on the same LAN as the gateway and HA. If Docker is missing: `curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker $USER`, then log out and back in.
 - A fixed address for the Pi (DHCP reservation in the router). HA stores it.
 - The gateway IP and its API token (see `docs/getting-started.md`).
 
@@ -29,11 +29,11 @@ Leave `WISER_INTEGRATION_CONTROL` unset: HA starts read-only. Then:
 
 ```sh
 mkdir -p data && chown "$(id -u):$(id -g)" data   # the container runs as your user so ./data stays writable
-UID=$(id -u) GID=$(id -g) docker compose up -d --build
+WISER_UID=$(id -u) WISER_GID=$(id -g) docker compose up -d --build
 docker compose logs -f
 ```
 
-Keep the `UID`/`GID` prefix in front of every `docker compose` command, or put `UID=…` and `GID=…` into `.env`.
+Keep the `WISER_UID`/`WISER_GID` prefix in front of every `docker compose` command, or put `WISER_UID=…` and `WISER_GID=…` into `.env` (they default to 1000, the usual first user on a Pi, so you can omit them then).
 
 To keep the names, rooms and layout you made on your laptop, stop the container and copy `data/wiser.sqlite` into the Pi's `data/` (names are stored per gateway address, so they match). Gateway credentials come from `.env`, so `data/credentials` is not needed.
 

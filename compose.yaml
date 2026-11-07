@@ -11,8 +11,8 @@ services:
     restart: unless-stopped
     init: true # node as PID 1 would ignore SIGTERM; this makes `docker compose stop` immediate
     env_file: .env
-    # Set UID/GID in the shell if your Pi user is not 1000 (`id -u`, `id -g`) so ./data stays writable.
-    user: "${UID:-1000}:${GID:-1000}"
+    # Set WISER_UID/WISER_GID if your Pi user is not 1000 (`id -u`, `id -g`) so ./data stays writable. (UID/GID are read-only in bash.)
+    user: "${WISER_UID:-1000}:${WISER_GID:-1000}"
     volumes:
       - ./data:/app/data
     read_only: true
