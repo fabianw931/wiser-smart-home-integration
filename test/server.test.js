@@ -184,7 +184,7 @@ test('local API mappings persist after the app server closes and restarts', asyn
 });
 
 test('target validation is strict and respects discovered load type', () => {
-  for (const [type, target] of [['onoff', { bri: 0 }], ['onoff', { bri: 10000 }], ['dim', { bri: 5678 }], ['motor', { level: 10000 }]]) {
+  for (const [type, target] of [['onoff', { bri: 0 }], ['onoff', { bri: 10000 }], ['dim', { bri: 5678 }], ['motor', { level: 10000 }], ['motor', { tilt: 0 }], ['motor', { tilt: 9 }], ['motor', { level: 5000, tilt: 4 }]]) {
     assert.doesNotThrow(() => validateTarget({ type }, target));
   }
   for (const [load, target] of [
@@ -192,7 +192,7 @@ test('target validation is strict and respects discovered load type', () => {
     [{ type: 'dim' }, { bri: '2' }], [{ type: 'dim' }, { bri: 1.2 }],
     [{ type: 'dim' }, { bri: -1 }], [{ type: 'dim' }, { bri: 10001 }],
     [{ type: 'dim' }, { bri: 0, extra: 1 }], [{ type: 'dim' }, {}],
-    [{ type: 'motor' }, { tilt: 10 }], [{ type: 'motor' }, { bri: 0 }],
+    [{ type: 'motor' }, { tilt: 10 }], [{ type: 'motor' }, { tilt: -1 }], [{ type: 'motor' }, { tilt: 1.5 }], [{ type: 'motor' }, {}], [{ type: 'motor' }, { bri: 0 }],
     [{ type: 'unknown' }, { bri: 0 }], [{ type: 'dim', unused: true }, { bri: 0 }],
   ]) assert.throws(() => validateTarget(load, target));
 });
@@ -268,7 +268,7 @@ test('connect, discover, validate and proxy targets; optional failures remain is
   for (const path of ['/api/read/jobs/1/run', '/api/read/devices/identify', '/api/read/loads?x=1', '/api/read/account', '/api/loads/01/target_state', '/api/loads/../target_state']) {
     assert.equal((await f.request(path)).status, 404);
   }
-  for (const [id, payload] of [[1, { bri: 5 }], [2, { bri: 10001 }], [3, { tilt: 2 }], [4, { bri: 0 }], [999, { bri: 0 }]]) {
+  for (const [id, payload] of [[1, { bri: 5 }], [2, { bri: 10001 }], [3, { tilt: 10 }], [4, { bri: 0 }], [999, { bri: 0 }]]) {
     assert.equal((await f.request(`/api/loads/${id}/target_state`, 'PUT', payload)).status, 400);
   }
   for (const [path, method, payload] of [

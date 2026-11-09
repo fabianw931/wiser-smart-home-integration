@@ -57,7 +57,15 @@ export function validateTarget(load, value) {
     }
     return;
   }
-  const field = load.type === 'motor' ? 'level' : ['onoff', 'dim'].includes(load.type) ? 'bri' : null;
+  if (load.type === 'motor') {
+    // Position and slat tilt (0..9 steps), alone or together.
+    keys(value, ['level', 'tilt']);
+    if (!Object.keys(value).length) invalid('Supply at least one target field.');
+    if ('level' in value && (!Number.isInteger(value.level) || value.level < 0 || value.level > 10000)) invalid('Target must be an integer from 0 to 10000.');
+    if ('tilt' in value && (!Number.isInteger(value.tilt) || value.tilt < 0 || value.tilt > 9)) invalid('Tilt must be an integer from 0 to 9.');
+    return;
+  }
+  const field = ['onoff', 'dim'].includes(load.type) ? 'bri' : null;
   if (!field) invalid('This load type is read-only.');
   keys(value, [field]);
   if (Object.keys(value).length !== 1 || !Number.isInteger(value[field]) || value[field] < 0 || value[field] > 10000) invalid('Target must be an integer from 0 to 10000.');

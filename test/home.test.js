@@ -45,8 +45,10 @@ test('quick actions target only loads with a valid reading that differs from the
   assert.deepEqual(actionTargets('lights-on', loads, states).map(item => item.id), [2]);
   assert.deepEqual(actionTargets('blinds-open', loads, states).map(item => item.id), [5]);
   assert.deepEqual(actionTargets('blinds-close', loads, states).map(item => item.id), [4]);
-  assert.deepEqual(actionTargets('blinds-half', loads, { ...states, 5: { level: 5000 } }).map(item => item.id), [4]);
-  assert.deepEqual(actionTargets('blinds-half', loads, { 4: { level: 5000, moving: 'up' }, 5: { level: 5000 } }).map(item => item.id), [4]);
+  // Tilt: only standing slat blinds (a reported tilt) not already at the goal; shades without tilt and moving blinds are skipped.
+  const slats = { 4: { level: 10000, tilt: 9 }, 5: { level: 10000, tilt: 4 }, 7: { level: 10000, tilt: 9, moving: 'down' }, 8: { level: 0 }, 9: { level: 10000, tilt: 0, moving: 'stop' } };
+  const withMore = [...loads, load(7, 'motor'), load(8, 'motor'), load(9, 'motor')];
+  assert.deepEqual(actionTargets('blinds-tilt', withMore, slats).map(item => item.id), [4, 9]);
   // A blind still moving away from the goal reports its start level; it must remain a target.
   const closing = { 4: { level: 0, moving: 'down' }, 5: { level: 0 } };
   assert.deepEqual(actionTargets('blinds-open', loads, closing).map(item => item.id), [4]);
