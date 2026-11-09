@@ -86,17 +86,17 @@ export const ACTIONS = {
   'lights-off': { kind: 'light', field: 'bri', value: 0, label: 'Lights off' },
   'lights-on': { kind: 'light', field: 'bri', value: 10000, label: 'Lights on' },
   'blinds-open': { kind: 'blind', field: 'level', value: 0, label: 'Open blinds', confirm: true },
-  // Slat tilt is 0..9 steps (not degrees; the gateway only counts tilt commands). 0 is assumed to be flat slats, 9 fully closed: check on your blinds and adjust TILT_LIGHT.
+  // A tilt command must carry the blind's current level: without it the gateway moves the blind to open (observed). Slat tilt is 0..9 steps (not degrees; the gateway only counts tilt commands). 0 is assumed to be flat slats, 9 fully closed: check on your blinds and adjust TILT_LIGHT.
   'blinds-tilt': { kind: 'blind', field: 'tilt', value: TILT_LIGHT, label: 'Tilt blinds for light', confirm: true },
   'blinds-close': { kind: 'blind', field: 'level', value: 10000, label: 'Close blinds', confirm: true },
 };
 export function actionTargets(action, loads, states) {
   const spec = ACTIONS[action];
   if (spec.field === 'tilt') {
-    // Only blinds that report a tilt (slat blinds; plain shades do not) and are standing still: a moving blind's tilt is not final.
+    // Only blinds that report a position and a tilt (slat blinds; plain shades do not) and are standing still: a moving blind's tilt is not final.
     return loads.filter(load => kindOf(load) === 'blind').filter(load => {
       const state = states[load.id];
-      return Number.isInteger(state?.tilt) && state.tilt >= 0 && state.tilt <= 9 && state.tilt !== spec.value && (state.moving === undefined || state.moving === 'stop');
+      return validLevel(state?.level) && Number.isInteger(state?.tilt) && state.tilt >= 0 && state.tilt <= 9 && state.tilt !== spec.value && (state.moving === undefined || state.moving === 'stop');
     });
   }
   return loads.filter(load => kindOf(load) === spec.kind).filter(load => {

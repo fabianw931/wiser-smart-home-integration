@@ -403,7 +403,8 @@ export class Dashboard {
       const worker = async () => {
         while (queue.length && current === this.epoch) {
           const load = queue.shift();
-          try { await this.#api.request(`/api/loads/${load.id}/target_state`, 'PUT', { [spec.field]: spec.value }, true); accepted++; }
+          try { const body = spec.field === 'tilt' ? { level: this.states[load.id].level, tilt: spec.value } : { [spec.field]: spec.value };
+            await this.#api.request(`/api/loads/${load.id}/target_state`, 'PUT', body, true); accepted++; }
           catch { failed.push(loadName(load)); }
         }
       };
