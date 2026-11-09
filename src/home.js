@@ -86,7 +86,7 @@ export const ACTIONS = {
   'lights-off': { kind: 'light', field: 'bri', value: 0, label: 'Lights off' },
   'lights-on': { kind: 'light', field: 'bri', value: 10000, label: 'Lights on' },
   'blinds-open': { kind: 'blind', field: 'level', value: 0, label: 'Open blinds', confirm: true },
-  // A tilt command must carry the blind's current level: without it the gateway moves the blind to open (observed). Slat tilt is 0..9 steps (not degrees; the gateway only counts tilt commands). On the installed blinds 0 = slats closed (a closed blind reports 0) and 4 already opened them fully, so 2 is a partial opening; adjust TILT_LIGHT.
+  // The tilt command carries the blind's current level, as in the gateway's own example. Slat tilt is 0..9 steps (not degrees; the gateway only counts tilt commands). On the installed blinds 0 = slats closed (a closed blind reports 0) and 4 already opened them fully, so 2 is a partial opening; adjust TILT_LIGHT.
   'blinds-tilt': { kind: 'blind', field: 'tilt', value: TILT_LIGHT, label: 'Tilt blinds for light', confirm: true },
   'blinds-close': { kind: 'blind', field: 'level', value: 10000, label: 'Close blinds', confirm: true },
 };
