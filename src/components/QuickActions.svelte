@@ -1,5 +1,5 @@
 <script>
-  import { ACTIONS, actionTargets, kindOf } from '../home.js';
+  import { ACTIONS, actionTargets, kindOf, tiltable } from '../home.js';
 
   // Lights act immediately. Blind actions move motors, so the button turns into an inline confirmation.
   let { loads, states, scope = 'home', dash, disabled = false } = $props();
@@ -10,8 +10,9 @@
   const lightsOffCount = $derived(actionTargets('lights-on', loads, states).length);
   const blindsOpenable = $derived(actionTargets('blinds-open', loads, states).length);
   const blindsClosable = $derived(actionTargets('blinds-close', loads, states).length);
-  const blindsTiltable = $derived(actionTargets('blinds-tilt', loads, states).length);
-  const counts = $derived({ 'blinds-open': blindsOpenable, 'blinds-tilt': blindsTiltable, 'blinds-close': blindsClosable });
+  // One tilt button, like the light switch: tilt while some blind is flat, untilt once none is.
+  const tiltAction = $derived(tiltable(loads, states).some(load => states[load.id].tilt === 0) || !actionTargets('blinds-untilt', loads, states).length ? 'blinds-tilt' : 'blinds-untilt');
+  const counts = $derived({ 'blinds-open': blindsOpenable, 'blinds-tilt': actionTargets('blinds-tilt', loads, states).length, 'blinds-untilt': actionTargets('blinds-untilt', loads, states).length, 'blinds-close': blindsClosable });
   const key = action => `${action}:${loads.map(load => load.id).join(',')}`;
   const pending = action => dash.pendingAction === key(action);
   const label = action => ACTIONS[action].label + (scope === 'home' ? ' (all)' : '');
@@ -26,7 +27,7 @@
     {/if}
   {/if}
   {#if blinds.length}
-    {#each ['blinds-open', 'blinds-tilt', 'blinds-close'] as action}
+    {#each ['blinds-open', tiltAction, 'blinds-close'] as action}
       {@const count = counts[action]}
       {#if pending(action)}
         <span class="confirm" role="group" aria-label={`Confirm ${ACTIONS[action].label.toLowerCase()}`}>

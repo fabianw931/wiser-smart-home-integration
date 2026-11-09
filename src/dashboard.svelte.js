@@ -403,7 +403,10 @@ export class Dashboard {
       const worker = async () => {
         while (queue.length && current === this.epoch) {
           const load = queue.shift();
-          try { const body = spec.field === 'tilt' ? { level: this.states[load.id].level, tilt: spec.value } : { [spec.field]: spec.value };
+          try { // Blinds remember their slat tilt: tilt actions carry the current level, and closing also resets the tilt so closed means untilted.
+            const state = this.states[load.id];
+            const body = spec.field === 'tilt' ? { level: state.level, tilt: spec.value }
+              : action === 'blinds-close' && Number.isInteger(state?.tilt) ? { level: spec.value, tilt: 0 } : { [spec.field]: spec.value };
             await this.#api.request(`/api/loads/${load.id}/target_state`, 'PUT', body, true); accepted++; }
           catch { failed.push(loadName(load)); }
         }

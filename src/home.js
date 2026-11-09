@@ -88,16 +88,20 @@ export const ACTIONS = {
   'blinds-open': { kind: 'blind', field: 'level', value: 0, label: 'Open blinds', confirm: true },
   // The tilt command carries the blind's current level, as in the gateway's own example. Slat tilt is 0..9 steps (not degrees; the gateway only counts tilt commands). On the installed blinds 0 = slats closed (a closed blind reports 0) and 4 already opened them fully, so 2 is a partial opening; adjust TILT_LIGHT.
   'blinds-tilt': { kind: 'blind', field: 'tilt', value: TILT_LIGHT, label: 'Tilt blinds for light', confirm: true },
+  'blinds-untilt': { kind: 'blind', field: 'tilt', value: 0, label: 'Untilt blinds', confirm: true },
   'blinds-close': { kind: 'blind', field: 'level', value: 10000, label: 'Close blinds', confirm: true },
 };
+// Blinds that can be tilted now: they report a position and a tilt, are not fully up (an open blind reports a meaningless tilt of 9) and stand still.
+export function tiltable(loads, states) {
+  return loads.filter(load => kindOf(load) === 'blind').filter(load => {
+    const state = states[load.id];
+    return validLevel(state?.level) && state.level > 0 && Number.isInteger(state.tilt) && state.tilt >= 0 && state.tilt <= 9 && (state.moving === undefined || state.moving === 'stop');
+  });
+}
 export function actionTargets(action, loads, states) {
   const spec = ACTIONS[action];
   if (spec.field === 'tilt') {
-    // Only blinds that report a position and a tilt (slat blinds; plain shades do not) and are standing still: a moving blind's tilt is not final.
-    return loads.filter(load => kindOf(load) === 'blind').filter(load => {
-      const state = states[load.id];
-      return validLevel(state?.level) && Number.isInteger(state?.tilt) && state.tilt >= 0 && state.tilt <= 9 && state.tilt !== spec.value && (state.moving === undefined || state.moving === 'stop');
-    });
+    return tiltable(loads, states).filter(load => states[load.id].tilt !== spec.value);
   }
   return loads.filter(load => kindOf(load) === spec.kind).filter(load => {
     const level = levelOf(load, states[load.id]);

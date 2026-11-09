@@ -49,6 +49,10 @@ test('quick actions target only loads with a valid reading that differs from the
   const slats = { 4: { level: 10000, tilt: 9 }, 5: { level: 10000, tilt: 2 }, 7: { level: 10000, tilt: 9, moving: 'down' }, 8: { level: 0 }, 9: { level: 10000, tilt: 0, moving: 'stop' }, 10: { tilt: 9 } };
   const withMore = [...loads, load(7, 'motor'), load(8, 'motor'), load(9, 'motor'), load(10, 'motor')];
   assert.deepEqual(actionTargets('blinds-tilt', withMore, slats).map(item => item.id), [4, 9]);
+  // Untilt targets standing, not fully open slat blinds that are tilted; an open blind's reported tilt (9) is ignored.
+  const mixed = { 4: { level: 10000, tilt: 0 }, 5: { level: 10000, tilt: 2 }, 7: { level: 0, tilt: 9 }, 9: { level: 5000, tilt: 9 } };
+  assert.deepEqual(actionTargets('blinds-untilt', withMore, mixed).map(item => item.id), [5, 9]);
+  assert.deepEqual(actionTargets('blinds-tilt', withMore, mixed).map(item => item.id), [4, 9]);
   // A blind still moving away from the goal reports its start level; it must remain a target.
   const closing = { 4: { level: 0, moving: 'down' }, 5: { level: 0 } };
   assert.deepEqual(actionTargets('blinds-open', loads, closing).map(item => item.id), [4]);
