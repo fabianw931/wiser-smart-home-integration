@@ -10,6 +10,8 @@
   const lightsOffCount = $derived(actionTargets('lights-on', loads, states).length);
   const blindsOpenable = $derived(actionTargets('blinds-open', loads, states).length);
   const blindsClosable = $derived(actionTargets('blinds-close', loads, states).length);
+  const blindsHalfable = $derived(actionTargets('blinds-half', loads, states).length);
+  const counts = $derived({ 'blinds-open': blindsOpenable, 'blinds-half': blindsHalfable, 'blinds-close': blindsClosable });
   const key = action => `${action}:${loads.map(load => load.id).join(',')}`;
   const pending = action => dash.pendingAction === key(action);
   const label = action => ACTIONS[action].label + (scope === 'home' ? ' (all)' : '');
@@ -24,8 +26,8 @@
     {/if}
   {/if}
   {#if blinds.length}
-    {#each ['blinds-open', 'blinds-close'] as action}
-      {@const count = action === 'blinds-open' ? blindsOpenable : blindsClosable}
+    {#each ['blinds-open', 'blinds-half', 'blinds-close'] as action}
+      {@const count = counts[action]}
       {#if pending(action)}
         <span class="confirm" role="group" aria-label={`Confirm ${ACTIONS[action].label.toLowerCase()}`}>
           <button class="btn btn-warning" type="button" onclick={() => dash.requestAction(action, loads)}>Confirm: {ACTIONS[action].label.toLowerCase()} ({count})</button>

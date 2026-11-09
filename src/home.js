@@ -85,6 +85,8 @@ export const ACTIONS = {
   'lights-off': { kind: 'light', field: 'bri', value: 0, label: 'Lights off' },
   'lights-on': { kind: 'light', field: 'bri', value: 10000, label: 'Lights on' },
   'blinds-open': { kind: 'blind', field: 'level', value: 0, label: 'Open blinds', confirm: true },
+  // Level 5000 = halfway: lets daylight in. Wiser levels run from 0 (open) to 10000 (closed).
+  'blinds-half': { kind: 'blind', field: 'level', value: 5000, label: 'Half-open blinds', confirm: true },
   'blinds-close': { kind: 'blind', field: 'level', value: 10000, label: 'Close blinds', confirm: true },
 };
 export function actionTargets(action, loads, states) {
@@ -93,7 +95,8 @@ export function actionTargets(action, loads, states) {
     const level = levelOf(load, states[load.id]);
     if (level === null) return false;
     // A blind that is still travelling away from the goal reports its start level (e.g. level 0 while moving down), so level alone would skip it.
-    if (spec.kind === 'blind' && states[load.id]?.moving === (spec.value === 0 ? 'down' : 'up')) return true;
+    const moving = states[load.id]?.moving;
+    if (spec.kind === 'blind' && (spec.value === 5000 ? moving === 'up' || moving === 'down' : moving === (spec.value === 0 ? 'down' : 'up'))) return true;
     return level !== spec.value;
   });
 }
